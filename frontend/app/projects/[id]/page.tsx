@@ -80,7 +80,7 @@ export default function ProjectPage() {
 
   return <main>
     <div className="breadcrumbs"><a href="/">Proiecte</a><span>/</span><strong>{project?.name || "Proiect"}</strong></div>
-    <header><div><h1>{project?.name || "Proiect indisponibil"}</h1>{project && <div className="muted">{project.locality}, {project.county}</div>}</div><div className="toolbar"><a href={`/projects/${projectId}/estimate`}>Deviz valoric</a><a href="/">Înapoi la proiecte</a></div></header>
+    <header><div><h1>{project?.name || "Proiect indisponibil"}</h1>{project && <div className="muted">{project.locality}, {project.county}</div>}</div><div className="toolbar"><a href={`/projects/${projectId}/estimate`}>Deviz valoric</a><a href={`/projects/${projectId}/geometry`}>Calcul geometric</a><a href="/">Înapoi la proiecte</a></div></header>
     {error && <div className="card error" role="alert">{error} <button className="secondary" onClick={load}>Reîncearcă</button></div>}
     {project && <>
       <Subtotal items={projectItems} label="Total proiect, cu pierderi" />

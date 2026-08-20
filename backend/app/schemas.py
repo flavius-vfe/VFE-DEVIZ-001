@@ -195,3 +195,39 @@ class ManualResourceLineIn(BaseModel):
     unit_price_net: Decimal = Field(ge=0)
     vat_rate: Decimal = Field(default=Decimal("21"), ge=0, le=100)
     notes: str | None = None
+
+GeometryType = Literal["ROOM", "WALL", "FOUNDATION_STRIP", "SLAB", "BEAM", "COLUMN", "ROOF_GABLE", "REBAR", "STIRRUPS", "WELDED_MESH"]
+
+class GeometryCalculationIn(BaseModel):
+    estimate_item_id: int | None = None
+    parent_calculation_id: int | None = None
+    geometry_type: GeometryType
+    name: str = Field(min_length=1, max_length=255)
+    input_data: dict
+    selected_result: str = Field(min_length=1, max_length=80)
+    waste_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    notes: str | None = None
+
+class GeometryLinkIn(BaseModel):
+    estimate_item_id: int
+    result_key: str = Field(min_length=1, max_length=80)
+    waste_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+class GeometryCreateItemIn(BaseModel):
+    section_id: int
+    result_key: str
+    code: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=255)
+    work_item_id: int | None = None
+    waste_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+class MeshCatalogueIn(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=255)
+    wire_diameter_mm: Decimal = Field(gt=0)
+    spacing_x_mm: Decimal = Field(gt=0)
+    spacing_y_mm: Decimal = Field(gt=0)
+    sheet_length_m: Decimal = Field(gt=0)
+    sheet_width_m: Decimal = Field(gt=0)
+    weight_kg_per_sheet: Decimal = Field(gt=0)
+    active: bool = True

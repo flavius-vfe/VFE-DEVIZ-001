@@ -196,6 +196,47 @@ class EstimateResourceLine(Base):
     subtotal_gross: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
 
+class GeometryCalculation(Base):
+    __tablename__ = "geometry_calculations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    estimate_item_id: Mapped[int | None] = mapped_column(ForeignKey("estimate_items.id", ondelete="SET NULL"))
+    parent_calculation_id: Mapped[int | None] = mapped_column(ForeignKey("geometry_calculations.id", ondelete="SET NULL"))
+    geometry_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    input_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    results: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    selected_result: Mapped[str] = mapped_column(String(80), nullable=False)
+    calculated_quantity: Mapped[Decimal] = mapped_column(Numeric(24, 8), nullable=False)
+    calculated_unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    waste_percent: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False, default=Decimal("0"))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+class GeometryEstimateLink(Base):
+    __tablename__ = "geometry_estimate_links"
+    __table_args__ = (UniqueConstraint("geometry_calculation_id", "estimate_item_id", "result_key", name="uq_geometry_item_result"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    geometry_calculation_id: Mapped[int] = mapped_column(ForeignKey("geometry_calculations.id", ondelete="CASCADE"), nullable=False)
+    estimate_item_id: Mapped[int] = mapped_column(ForeignKey("estimate_items.id", ondelete="CASCADE"), nullable=False)
+    result_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    waste_percent: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False, default=Decimal("0"))
+
+class MeshCatalogueItem(Base):
+    __tablename__ = "mesh_catalogue_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    wire_diameter_mm: Mapped[Decimal] = mapped_column(Numeric(8, 3), nullable=False)
+    spacing_x_mm: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
+    spacing_y_mm: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
+    sheet_length_m: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    sheet_width_m: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    sheet_area_m2: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    weight_kg_per_sheet: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
 class Supplier(Base):
     __tablename__ = "suppliers"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

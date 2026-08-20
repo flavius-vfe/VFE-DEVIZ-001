@@ -96,7 +96,16 @@ curl --fail --silent --cookie "$cookie_jar" --request POST "http://127.0.0.1:803
 curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"resource_type":"OTHER","description":"Protecții smoke","unit":"set","quantity":"2","waste_percent":"5","unit_price_net":"10","vat_rate":"21"}' "http://127.0.0.1:8030/api/estimate-items/$item_id/resources" | grep --quiet '"source":"MANUAL"'
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/estimate-totals" | grep --quiet '"total_gross"'
 
+geometry_item_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"code\":\"GEO-01\",\"description\":\"Pereți cameră smoke\",\"unit\":\"m2\",\"quantity\":\"1\",\"work_item_id\":$work_id}" "http://127.0.0.1:8030/api/sections/$section_id/items")
+geometry_item_id=$(printf '%s' "$geometry_item_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+geometry_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"estimate_item_id\":$geometry_item_id,\"geometry_type\":\"ROOM\",\"name\":\"Camera smoke\",\"input_data\":{\"length_m\":\"5\",\"width_m\":\"4\",\"height_m\":\"2.8\",\"openings\":[]},\"selected_result\":\"net_wall_area_m2\",\"waste_percent\":\"5\"}" "http://127.0.0.1:8030/api/projects/$project_id/geometry")
+printf '%s' "$geometry_json" | grep --quiet '"geometry_type":"ROOM"'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/$section_id/items" | python3 -c 'import json,sys,decimal; rows=json.load(sys.stdin); row=next(x for x in rows if x["code"]=="GEO-01"); assert decimal.Decimal(str(row["quantity"]))==decimal.Decimal("52.92")'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/estimate-items/$geometry_item_id/resources" | grep --quiet '"source":"RECIPE"'
+curl --fail --silent "http://127.0.0.1:3080/projects/$project_id/geometry" >/dev/null
+
 curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$item_id" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$geometry_item_id" >/dev/null
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/$section_id/items" | grep --quiet '^\[\]$'
 
 echo 'Smoke test instalare Unraid: OK'

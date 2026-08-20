@@ -3,6 +3,9 @@ from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
+Unit = Literal["buc", "ml", "m2", "m3", "kg", "tona", "ora", "set", "sac", "palet"]
+ResourceType = Literal["MATERIAL", "LABOR", "EQUIPMENT", "OTHER"]
+
 class SetupStatusOut(BaseModel):
     configured: bool
 
@@ -72,7 +75,7 @@ class EstimateItemIn(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=255)
     notes: str | None = Field(default=None, max_length=2000)
-    unit: Literal["buc", "ml", "m2", "m3", "kg", "tona", "ora", "set"]
+    unit: Unit
     quantity: Decimal = Field(gt=0)
     work_item_id: int | None = None
     calculation_type: str = Field(default="MANUAL", max_length=30)
@@ -107,3 +110,88 @@ class SteelCalcIn(BaseModel):
     bar_length_m: Decimal = Field(gt=0)
     quantity: Decimal = Field(gt=0)
     waste_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+class MaterialIn(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=255)
+    category: str = Field(min_length=1, max_length=160)
+    base_unit: Unit
+    description: str | None = None
+    attributes: dict = Field(default_factory=dict)
+    active: bool = True
+
+class MaterialOut(MaterialIn):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class PricedResourceIn(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=255)
+    unit: Unit
+    rate_net: Decimal = Field(ge=0)
+    vat_rate: Decimal = Field(default=Decimal("21"), ge=0, le=100)
+    active: bool = True
+
+class PricedResourceOut(PricedResourceIn):
+    id: int
+    rate_gross: Decimal
+    model_config = ConfigDict(from_attributes=True)
+
+class WorkItemIn(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=160)
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    unit: Unit
+    active: bool = True
+
+class WorkItemOut(WorkItemIn):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class RecipeIn(BaseModel):
+    work_item_id: int
+    scope: Literal["STANDARD", "COMPANY_OVERRIDE", "PROJECT_OVERRIDE"] = "STANDARD"
+    project_id: int | None = None
+    version: int = Field(default=1, ge=1)
+
+class RecipeOut(RecipeIn):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class RecipeResourceIn(BaseModel):
+    resource_type: ResourceType
+    resource_id: int
+    quantity_per_unit: Decimal = Field(gt=0)
+    waste_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    unit: Unit
+    notes: str | None = None
+
+class RecipeResourceOut(RecipeResourceIn):
+    id: int
+    recipe_id: int
+    description: str
+    model_config = ConfigDict(from_attributes=True)
+
+class ProjectPriceIn(BaseModel):
+    resource_type: ResourceType
+    resource_id: int
+    unit_price_net: Decimal = Field(ge=0)
+    vat_rate: Decimal = Field(default=Decimal("21"), ge=0, le=100)
+
+class ProjectPriceOut(ProjectPriceIn):
+    id: int
+    project_id: int
+    unit_price_gross: Decimal
+    model_config = ConfigDict(from_attributes=True)
+
+class ManualResourceLineIn(BaseModel):
+    resource_type: ResourceType
+    resource_id: int | None = None
+    description: str = Field(min_length=1, max_length=255)
+    unit: Unit
+    quantity: Decimal = Field(gt=0)
+    waste_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    unit_price_net: Decimal = Field(ge=0)
+    vat_rate: Decimal = Field(default=Decimal("21"), ge=0, le=100)
+    notes: str | None = None

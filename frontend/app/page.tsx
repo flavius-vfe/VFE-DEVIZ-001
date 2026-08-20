@@ -138,6 +138,7 @@ function Dashboard({projects,onRefresh,onError}:{projects:any[],onRefresh:()=>vo
     } catch(e:any) { onError(e.message); }
   }
   return <>
+    <nav className="catalog-nav"><a href="/catalog/materiale">Materiale</a><a href="/catalog/manopera">Manoperă</a><a href="/catalog/utilaje">Utilaje</a><a href="/catalog/lucrari">Lucrări și rețete</a></nav>
     <div className="grid">
       <div className="card"><div className="muted">Proiecte</div><div className="value">{projects.length}</div></div>
       <div className="card"><div className="muted">Locație implicită</div><div className="value">Ceahlău</div></div>

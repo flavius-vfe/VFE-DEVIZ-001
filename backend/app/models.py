@@ -76,10 +76,45 @@ class EstimateSection(Base):
 class Material(Base):
     __tablename__ = "materials"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    canonical_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(160), nullable=False)
     base_unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
     attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class LaborResource(Base):
+    __tablename__ = "labor_resources"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    rate_net: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    vat_rate: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False, default=Decimal("21"))
+    rate_gross: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class EquipmentResource(Base):
+    __tablename__ = "equipment_resources"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    rate_net: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    vat_rate: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False, default=Decimal("21"))
+    rate_gross: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class OtherResource(Base):
+    __tablename__ = "other_resources"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    rate_net: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    vat_rate: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False, default=Decimal("21"))
+    rate_gross: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 class WorkItem(Base):
@@ -97,6 +132,7 @@ class WorkRecipe(Base):
     __table_args__ = (UniqueConstraint("work_item_id", "version", name="uq_recipe_version"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     work_item_id: Mapped[int] = mapped_column(ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     scope: Mapped[str] = mapped_column(String(30), default="STANDARD", nullable=False)
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -112,6 +148,7 @@ class RecipeResource(Base):
     quantity_per_unit: Mapped[Decimal] = mapped_column(Numeric(18,6), nullable=False)
     waste_percent: Mapped[Decimal] = mapped_column(Numeric(7,3), default=Decimal("0"))
     formula: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
 
 class EstimateItem(Base):
     __tablename__ = "estimate_items"
@@ -127,6 +164,37 @@ class EstimateItem(Base):
     calculation_inputs: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     waste_percent: Mapped[Decimal] = mapped_column(Numeric(7,3), default=Decimal("0"))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+class ProjectResourcePrice(Base):
+    __tablename__ = "project_resource_prices"
+    __table_args__ = (UniqueConstraint("project_id", "resource_type", "resource_id", name="uq_project_resource_price"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    resource_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price_net: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    vat_rate: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False)
+    unit_price_gross: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+
+class EstimateResourceLine(Base):
+    __tablename__ = "estimate_resource_lines"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    estimate_item_id: Mapped[int] = mapped_column(ForeignKey("estimate_items.id", ondelete="CASCADE"), nullable=False)
+    recipe_resource_id: Mapped[int | None] = mapped_column(ForeignKey("recipe_resources.id", ondelete="SET NULL"))
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="MANUAL")
+    resource_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    resource_id: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    waste_percent: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False, default=Decimal("0"))
+    unit_price_net: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    vat_rate: Mapped[Decimal] = mapped_column(Numeric(7, 3), nullable=False)
+    vat_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    unit_price_gross: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    subtotal_net: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    subtotal_gross: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
 
 class Supplier(Base):
     __tablename__ = "suppliers"

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vfe-deviz-worker</Name>
-  <Repository>ghcr.io/flavius-vfe/vfe-deviz-worker:0.1.3</Repository>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-worker:0.1.4</Repository>
   <Registry>https://github.com/flavius-vfe/VFE-DEVIZ-001/pkgs/container/vfe-deviz-worker</Registry>
   <Network>vfe-deviz</Network>
   <Overview>Worker VFE Deviz fără porturi publicate; accesează PostgreSQL numai pe rețeaua internă.</Overview>

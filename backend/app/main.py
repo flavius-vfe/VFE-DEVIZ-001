@@ -4,19 +4,23 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Depends, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, delete, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
 from .models import (
     SystemSetting, User, UserSession, Project, Building, Level,
-    EstimateSection, EstimateItem, WorkItem,
+    EstimateSection, EstimateItem, WorkItem, Material, LaborResource, EquipmentResource,
+    OtherResource, WorkRecipe, RecipeResource, ProjectResourcePrice, EstimateResourceLine,
 )
 from .schemas import (
     SetupStatusOut, SetupIn, LoginIn, UserOut,
     ProjectIn, ProjectOut, BuildingIn, BuildingOut, LevelIn, LevelOut,
     SectionIn, SectionOut, EstimateItemIn, EstimateItemOut,
-    VatCalcIn, PackageCalcIn, RoomCalcIn, SteelCalcIn
+    VatCalcIn, PackageCalcIn, RoomCalcIn, SteelCalcIn, MaterialIn, MaterialOut,
+    PricedResourceIn, PricedResourceOut, WorkItemIn, WorkItemOut, RecipeIn, RecipeOut,
+    RecipeResourceIn, RecipeResourceOut, ProjectPriceIn, ProjectPriceOut, ManualResourceLineIn,
 )
 from .security import (
     hash_password, verify_password, new_session_token, hash_session_token, session_expiry
@@ -26,8 +30,9 @@ from .calc import (
     gross_from_net, net_from_gross, vat_amount_from_net, with_waste,
     packages_required, room_geometry, steel_total_kg, money
 )
+from .estimation import calculate_cost, gross_from_net_exact, recipe_quantity, aggregate_totals
 
-app = FastAPI(title="VFE Deviz API", version="0.1.3")
+app = FastAPI(title="VFE Deviz API", version="0.1.4")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -47,7 +52,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.3"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.4"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -344,3 +349,198 @@ def calc_steel(payload: SteelCalcIn, _: User = Depends(current_user)):
             payload.waste_percent,
         )
     }
+
+RESOURCE_MODELS = {
+    "MATERIAL": Material,
+    "LABOR": LaborResource,
+    "EQUIPMENT": EquipmentResource,
+    "OTHER": OtherResource,
+}
+
+def commit_or_conflict(db: Session, detail: str):
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=detail) from exc
+
+def get_resource(db: Session, resource_type: str, resource_id: int):
+    model = RESOURCE_MODELS[resource_type]
+    return require_entity(db, model, resource_id, "Resursa nu există.")
+
+def resource_name(resource) -> str:
+    return resource.name
+
+def project_for_item(db: Session, item_id: int) -> int:
+    project_id = db.scalar(
+        select(Building.project_id)
+        .join(Level, Level.building_id == Building.id)
+        .join(EstimateSection, EstimateSection.level_id == Level.id)
+        .join(EstimateItem, EstimateItem.section_id == EstimateSection.id)
+        .where(EstimateItem.id == item_id)
+    )
+    if project_id is None:
+        raise HTTPException(status_code=404, detail="Articolul de deviz nu există.")
+    return project_id
+
+def effective_price(db: Session, project_id: int, resource_type: str, resource_id: int):
+    override = db.scalar(select(ProjectResourcePrice).where(
+        ProjectResourcePrice.project_id == project_id,
+        ProjectResourcePrice.resource_type == resource_type,
+        ProjectResourcePrice.resource_id == resource_id,
+    ))
+    if override:
+        return override.unit_price_net, override.vat_rate
+    resource = get_resource(db, resource_type, resource_id)
+    if resource_type == "MATERIAL":
+        return Decimal("0"), Decimal("21")
+    return resource.rate_net, resource.vat_rate
+
+@app.get("/api/catalog/materials", response_model=list[MaterialOut])
+def list_materials(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    return list(db.scalars(select(Material).order_by(Material.code)))
+
+@app.post("/api/catalog/materials", response_model=MaterialOut, status_code=201)
+def create_material(payload: MaterialIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row = Material(**payload.model_dump())
+    db.add(row); commit_or_conflict(db, "Codul materialului există deja."); db.refresh(row)
+    return row
+
+@app.put("/api/catalog/materials/{resource_id}", response_model=MaterialOut)
+def update_material(resource_id: int, payload: MaterialIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row = require_entity(db, Material, resource_id, "Materialul nu există.")
+    for key, value in payload.model_dump().items(): setattr(row, key, value)
+    commit_or_conflict(db, "Codul materialului există deja."); db.refresh(row)
+    return row
+
+def list_priced(model, db: Session):
+    return list(db.scalars(select(model).order_by(model.code)))
+
+def create_priced(model, payload: PricedResourceIn, db: Session):
+    values = payload.model_dump()
+    values["rate_gross"] = gross_from_net_exact(values["rate_net"], values["vat_rate"])
+    row = model(**values); db.add(row); commit_or_conflict(db, "Codul resursei există deja."); db.refresh(row)
+    return row
+
+def update_priced(model, resource_id: int, payload: PricedResourceIn, db: Session):
+    row = require_entity(db, model, resource_id, "Resursa nu există.")
+    values = payload.model_dump(); values["rate_gross"] = gross_from_net_exact(values["rate_net"], values["vat_rate"])
+    for key, value in values.items(): setattr(row, key, value)
+    commit_or_conflict(db, "Codul resursei există deja."); db.refresh(row)
+    return row
+
+@app.get("/api/catalog/labor", response_model=list[PricedResourceOut])
+def list_labor(db: Session = Depends(get_db), _: User = Depends(current_user)): return list_priced(LaborResource, db)
+@app.post("/api/catalog/labor", response_model=PricedResourceOut, status_code=201)
+def create_labor(payload: PricedResourceIn, db: Session = Depends(get_db), _: User = Depends(current_user)): return create_priced(LaborResource, payload, db)
+@app.put("/api/catalog/labor/{resource_id}", response_model=PricedResourceOut)
+def update_labor(resource_id: int, payload: PricedResourceIn, db: Session = Depends(get_db), _: User = Depends(current_user)): return update_priced(LaborResource, resource_id, payload, db)
+
+@app.get("/api/catalog/equipment", response_model=list[PricedResourceOut])
+def list_equipment(db: Session = Depends(get_db), _: User = Depends(current_user)): return list_priced(EquipmentResource, db)
+@app.post("/api/catalog/equipment", response_model=PricedResourceOut, status_code=201)
+def create_equipment(payload: PricedResourceIn, db: Session = Depends(get_db), _: User = Depends(current_user)): return create_priced(EquipmentResource, payload, db)
+@app.put("/api/catalog/equipment/{resource_id}", response_model=PricedResourceOut)
+def update_equipment(resource_id: int, payload: PricedResourceIn, db: Session = Depends(get_db), _: User = Depends(current_user)): return update_priced(EquipmentResource, resource_id, payload, db)
+
+@app.get("/api/catalog/other", response_model=list[PricedResourceOut])
+def list_other(db: Session = Depends(get_db), _: User = Depends(current_user)): return list_priced(OtherResource, db)
+@app.post("/api/catalog/other", response_model=PricedResourceOut, status_code=201)
+def create_other(payload: PricedResourceIn, db: Session = Depends(get_db), _: User = Depends(current_user)): return create_priced(OtherResource, payload, db)
+
+@app.get("/api/catalog/work-items", response_model=list[WorkItemOut])
+def list_work_items(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    return list(db.scalars(select(WorkItem).order_by(WorkItem.code)))
+
+@app.post("/api/catalog/work-items", response_model=WorkItemOut, status_code=201)
+def create_work_item(payload: WorkItemIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row = WorkItem(**payload.model_dump()); db.add(row); commit_or_conflict(db, "Codul lucrării există deja."); db.refresh(row)
+    return row
+
+@app.put("/api/catalog/work-items/{work_item_id}", response_model=WorkItemOut)
+def update_work_item(work_item_id: int, payload: WorkItemIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row = require_entity(db, WorkItem, work_item_id, "Lucrarea nu există.")
+    for key, value in payload.model_dump().items(): setattr(row, key, value)
+    commit_or_conflict(db, "Codul lucrării există deja."); db.refresh(row)
+    return row
+
+@app.get("/api/work-items/{work_item_id}/recipes", response_model=list[RecipeOut])
+def list_recipes(work_item_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    return list(db.scalars(select(WorkRecipe).where(WorkRecipe.work_item_id == work_item_id).order_by(WorkRecipe.version.desc())))
+
+@app.post("/api/recipes", response_model=RecipeOut, status_code=201)
+def create_recipe(payload: RecipeIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, WorkItem, payload.work_item_id, "Lucrarea nu există.")
+    if payload.scope == "PROJECT_OVERRIDE" and payload.project_id is None:
+        raise HTTPException(status_code=422, detail="Override-ul de proiect necesită project_id.")
+    if payload.scope != "PROJECT_OVERRIDE" and payload.project_id is not None:
+        raise HTTPException(status_code=422, detail="Doar override-ul de proiect poate avea project_id.")
+    row = WorkRecipe(**payload.model_dump()); db.add(row); commit_or_conflict(db, "Versiunea rețetei există deja."); db.refresh(row)
+    return row
+
+@app.get("/api/recipes/{recipe_id}/resources", response_model=list[RecipeResourceOut])
+def list_recipe_resources(recipe_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, WorkRecipe, recipe_id, "Rețeta nu există.")
+    return list(db.scalars(select(RecipeResource).where(RecipeResource.recipe_id == recipe_id).order_by(RecipeResource.id)))
+
+@app.post("/api/recipes/{recipe_id}/resources", response_model=RecipeResourceOut, status_code=201)
+def create_recipe_resource(recipe_id: int, payload: RecipeResourceIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, WorkRecipe, recipe_id, "Rețeta nu există.")
+    resource = get_resource(db, payload.resource_type, payload.resource_id)
+    row = RecipeResource(recipe_id=recipe_id, description=resource_name(resource), formula=None, **payload.model_dump())
+    db.add(row); db.commit(); db.refresh(row); return row
+
+@app.put("/api/projects/{project_id}/resource-prices", response_model=ProjectPriceOut)
+def set_project_price(project_id: int, payload: ProjectPriceIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există."); get_resource(db, payload.resource_type, payload.resource_id)
+    row = db.scalar(select(ProjectResourcePrice).where(ProjectResourcePrice.project_id == project_id, ProjectResourcePrice.resource_type == payload.resource_type, ProjectResourcePrice.resource_id == payload.resource_id))
+    values = payload.model_dump(); values["unit_price_gross"] = gross_from_net_exact(payload.unit_price_net, payload.vat_rate)
+    if row is None: row = ProjectResourcePrice(project_id=project_id, **values); db.add(row)
+    else:
+        for key, value in values.items(): setattr(row, key, value)
+    db.commit(); db.refresh(row); return row
+
+def line_dict(line: EstimateResourceLine):
+    return {column.name: getattr(line, column.name) for column in line.__table__.columns}
+
+@app.get("/api/estimate-items/{item_id}/resources")
+def list_item_resources(item_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, EstimateItem, item_id, "Articolul de deviz nu există.")
+    return [line_dict(row) for row in db.scalars(select(EstimateResourceLine).where(EstimateResourceLine.estimate_item_id == item_id).order_by(EstimateResourceLine.id))]
+
+@app.post("/api/estimate-items/{item_id}/resources", status_code=201)
+def create_manual_resource(item_id: int, payload: ManualResourceLineIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, EstimateItem, item_id, "Articolul de deviz nu există.")
+    if payload.resource_id is not None: get_resource(db, payload.resource_type, payload.resource_id)
+    effective_quantity = recipe_quantity(payload.quantity, Decimal("1"), payload.waste_percent)
+    cost = calculate_cost(effective_quantity, payload.unit_price_net, payload.vat_rate)
+    row = EstimateResourceLine(estimate_item_id=item_id, source="MANUAL", recipe_resource_id=None, resource_type=payload.resource_type, resource_id=payload.resource_id, description=payload.description, unit=payload.unit, quantity=cost.quantity, waste_percent=payload.waste_percent, unit_price_net=cost.unit_price_net, vat_rate=cost.vat_rate, vat_amount=cost.vat_amount, unit_price_gross=cost.unit_price_gross, subtotal_net=cost.subtotal_net, subtotal_gross=cost.subtotal_gross, notes=payload.notes)
+    db.add(row); db.commit(); db.refresh(row); return line_dict(row)
+
+def resolve_recipe(db: Session, work_item_id: int, project_id: int):
+    recipes = list(db.scalars(select(WorkRecipe).where(WorkRecipe.work_item_id == work_item_id).order_by(WorkRecipe.version.desc())))
+    for scope in ("PROJECT_OVERRIDE", "COMPANY_OVERRIDE", "STANDARD"):
+        candidates = [r for r in recipes if r.scope == scope and (scope != "PROJECT_OVERRIDE" or r.project_id == project_id)]
+        if candidates: return candidates[0]
+    return None
+
+@app.post("/api/estimate-items/{item_id}/resources/generate")
+def generate_recipe_resources(item_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    item = require_entity(db, EstimateItem, item_id, "Articolul de deviz nu există.")
+    if item.work_item_id is None: raise HTTPException(status_code=422, detail="Articolul nu are o lucrare asociată.")
+    project_id = project_for_item(db, item_id); recipe = resolve_recipe(db, item.work_item_id, project_id)
+    if recipe is None: raise HTTPException(status_code=404, detail="Nu există rețetă aplicabilă.")
+    db.execute(delete(EstimateResourceLine).where(EstimateResourceLine.estimate_item_id == item_id, EstimateResourceLine.source == "RECIPE"))
+    for recipe_line in db.scalars(select(RecipeResource).where(RecipeResource.recipe_id == recipe.id)):
+        net, vat = effective_price(db, project_id, recipe_line.resource_type, recipe_line.resource_id)
+        quantity = recipe_quantity(item.quantity, recipe_line.quantity_per_unit, recipe_line.waste_percent)
+        cost = calculate_cost(quantity, net, vat)
+        db.add(EstimateResourceLine(estimate_item_id=item.id, recipe_resource_id=recipe_line.id, source="RECIPE", resource_type=recipe_line.resource_type, resource_id=recipe_line.resource_id, description=recipe_line.description, unit=recipe_line.unit, quantity=cost.quantity, waste_percent=recipe_line.waste_percent, unit_price_net=cost.unit_price_net, vat_rate=cost.vat_rate, vat_amount=cost.vat_amount, unit_price_gross=cost.unit_price_gross, subtotal_net=cost.subtotal_net, subtotal_gross=cost.subtotal_gross, notes=recipe_line.notes))
+    db.commit()
+    return list_item_resources(item_id, db, _)
+
+@app.get("/api/projects/{project_id}/estimate-totals")
+def project_estimate_totals(project_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există.")
+    lines = list(db.scalars(select(EstimateResourceLine).join(EstimateItem).join(EstimateSection).join(Level).join(Building).where(Building.project_id == project_id)))
+    return aggregate_totals([line_dict(line) for line in lines])

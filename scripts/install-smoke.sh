@@ -79,6 +79,23 @@ section_id=$(printf '%s' "$section_json" | python3 -c 'import json,sys; print(js
 item_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"code":"01.001","description":"Beton smoke","unit":"m3","quantity":"10","waste_percent":"5","notes":"Integrare frontend/backend"}' "http://127.0.0.1:8030/api/sections/$section_id/items")
 item_id=$(printf '%s' "$item_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 curl --fail --silent --cookie "$cookie_jar" --request PUT --header 'Content-Type: application/json' --data '{"code":"01.001A","description":"Beton actualizat","unit":"m3","quantity":"12","waste_percent":"7","notes":"Actualizat"}' "http://127.0.0.1:8030/api/estimate-items/$item_id" | grep --quiet '"notes":"Actualizat"'
+
+for route in catalog/materiale catalog/manopera catalog/utilaje catalog/lucrari "projects/$project_id/estimate"; do
+  curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null
+done
+
+labor_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"code":"MAN-SMOKE","name":"Zidar smoke","unit":"ora","rate_net":"50.1234","vat_rate":"21","active":true}' http://127.0.0.1:8030/api/catalog/labor)
+labor_id=$(printf '%s' "$labor_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+work_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"code":"LC-SMOKE","name":"Lucrare smoke","category":"Integrare","unit":"m3","active":true}' http://127.0.0.1:8030/api/catalog/work-items)
+work_id=$(printf '%s' "$work_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+recipe_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"work_item_id\":$work_id,\"scope\":\"STANDARD\",\"version\":1}" http://127.0.0.1:8030/api/recipes)
+recipe_id=$(printf '%s' "$recipe_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"resource_type\":\"LABOR\",\"resource_id\":$labor_id,\"quantity_per_unit\":\"1.5\",\"waste_percent\":\"10\",\"unit\":\"ora\"}" "http://127.0.0.1:8030/api/recipes/$recipe_id/resources" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" --request PUT --header 'Content-Type: application/json' --data "{\"code\":\"01.001A\",\"description\":\"Beton actualizat\",\"unit\":\"m3\",\"quantity\":\"12\",\"waste_percent\":\"7\",\"notes\":\"Actualizat\",\"work_item_id\":$work_id}" "http://127.0.0.1:8030/api/estimate-items/$item_id" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" --request POST "http://127.0.0.1:8030/api/estimate-items/$item_id/resources/generate" | grep --quiet '"resource_type":"LABOR"'
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"resource_type":"OTHER","description":"Protecții smoke","unit":"set","quantity":"2","waste_percent":"5","unit_price_net":"10","vat_rate":"21"}' "http://127.0.0.1:8030/api/estimate-items/$item_id/resources" | grep --quiet '"source":"MANUAL"'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/estimate-totals" | grep --quiet '"total_gross"'
+
 curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$item_id" >/dev/null
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/$section_id/items" | grep --quiet '^\[\]$'
 

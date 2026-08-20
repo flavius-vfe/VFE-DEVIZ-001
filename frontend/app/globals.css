@@ -30,6 +30,13 @@ button.danger { background:#fff0f0; color:#9b1c1c; border:1px solid #efb5b5; }
 .muted { color:#6a737d; }
 .value { font-size:1.65rem; font-weight:700; }
 nav { display:flex; gap:10px; flex-wrap:wrap; }
+.catalog-nav { margin-bottom:18px; }
+.catalog-nav a { padding:9px 12px; background:white; border:1px solid #dfe3e7; border-radius:8px; color:#202124; text-decoration:none; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+th,td { text-align:left; padding:10px; border-bottom:1px solid #e6e9ec; vertical-align:top; }
+th { font-size:.85rem; color:#59636e; }
+.money { font-variant-numeric:tabular-nums; white-space:nowrap; }
 .project-link { display:grid; grid-template-columns:1fr 1fr auto; gap:14px; padding:14px 0; border-bottom:1px solid #eee; color:inherit; text-decoration:none; align-items:center; }
 .project-link:hover { color:#0b57d0; }
 .breadcrumbs { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:18px; font-size:.92rem; }

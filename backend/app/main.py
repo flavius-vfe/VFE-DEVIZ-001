@@ -13,6 +13,7 @@ from .models import (
     SystemSetting, User, UserSession, Project, Building, Level,
     EstimateSection, EstimateItem, WorkItem, Material, LaborResource, EquipmentResource,
     OtherResource, WorkRecipe, RecipeResource, ProjectResourcePrice, EstimateResourceLine,
+    GeometryCalculation, GeometryEstimateLink, MeshCatalogueItem,
 )
 from .schemas import (
     SetupStatusOut, SetupIn, LoginIn, UserOut,
@@ -21,6 +22,7 @@ from .schemas import (
     VatCalcIn, PackageCalcIn, RoomCalcIn, SteelCalcIn, MaterialIn, MaterialOut,
     PricedResourceIn, PricedResourceOut, WorkItemIn, WorkItemOut, RecipeIn, RecipeOut,
     RecipeResourceIn, RecipeResourceOut, ProjectPriceIn, ProjectPriceOut, ManualResourceLineIn,
+    GeometryCalculationIn, GeometryLinkIn, GeometryCreateItemIn, MeshCatalogueIn,
 )
 from .security import (
     hash_password, verify_password, new_session_token, hash_session_token, session_expiry
@@ -31,8 +33,9 @@ from .calc import (
     packages_required, room_geometry, steel_total_kg, money
 )
 from .estimation import calculate_cost, gross_from_net_exact, recipe_quantity, aggregate_totals
+from .geometry import calculate as calculate_geometry, UNITS as GEOMETRY_UNITS, with_waste as geometry_with_waste
 
-app = FastAPI(title="VFE Deviz API", version="0.1.4")
+app = FastAPI(title="VFE Deviz API", version="0.1.5")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -52,7 +55,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.4"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.5"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -544,3 +547,95 @@ def project_estimate_totals(project_id: int, db: Session = Depends(get_db), _: U
     require_entity(db, Project, project_id, "Proiectul nu există.")
     lines = list(db.scalars(select(EstimateResourceLine).join(EstimateItem).join(EstimateSection).join(Level).join(Building).where(Building.project_id == project_id)))
     return aggregate_totals([line_dict(line) for line in lines])
+
+def json_decimals(value):
+    if isinstance(value, Decimal): return str(value)
+    if isinstance(value, dict): return {key: json_decimals(item) for key, item in value.items()}
+    if isinstance(value, list): return [json_decimals(item) for item in value]
+    return value
+
+def geometry_dict(row: GeometryCalculation):
+    return {column.name: getattr(row, column.name) for column in row.__table__.columns}
+
+def calculate_geometry_payload(payload: GeometryCalculationIn):
+    try: results = calculate_geometry(payload.geometry_type, payload.input_data)
+    except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if payload.selected_result not in results or payload.selected_result not in GEOMETRY_UNITS:
+        raise HTTPException(status_code=422, detail="Rezultatul selectat nu este disponibil pentru acest calculator.")
+    return results
+
+def synchronize_geometry_link(db: Session, calculation: GeometryCalculation, link: GeometryEstimateLink):
+    item = require_entity(db, EstimateItem, link.estimate_item_id, "Articolul de deviz nu există.")
+    results = {key: Decimal(str(value)) for key, value in calculation.results.items()}
+    if link.result_key not in results: raise HTTPException(status_code=422, detail="Rezultatul geometric selectat nu există.")
+    unit = GEOMETRY_UNITS[link.result_key]
+    if item.unit != unit: raise HTTPException(status_code=422, detail=f"Unitatea articolului trebuie să fie {unit}.")
+    item.quantity = geometry_with_waste(results[link.result_key], link.waste_percent)
+    item.waste_percent = link.waste_percent
+    db.flush()
+    if item.work_item_id is not None:
+        generate_recipe_resources(item.id, db, None)
+
+@app.get("/api/projects/{project_id}/geometry")
+def list_geometry(project_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există.")
+    rows = db.scalars(select(GeometryCalculation).where(GeometryCalculation.project_id == project_id).order_by(GeometryCalculation.updated_at.desc()))
+    return [geometry_dict(row) for row in rows]
+
+@app.post("/api/projects/{project_id}/geometry/calculate")
+def preview_geometry(project_id: int, payload: GeometryCalculationIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există.")
+    results = calculate_geometry_payload(payload)
+    base = results[payload.selected_result]
+    return {"results": results, "calculated_unit": GEOMETRY_UNITS[payload.selected_result], "geometric_quantity": base, "waste_quantity": geometry_with_waste(base, payload.waste_percent)-base, "estimate_quantity": geometry_with_waste(base, payload.waste_percent)}
+
+@app.post("/api/projects/{project_id}/geometry", status_code=201)
+def create_geometry(project_id: int, payload: GeometryCalculationIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există."); results=calculate_geometry_payload(payload); base=results[payload.selected_result]
+    if payload.parent_calculation_id is not None:
+        parent=require_entity(db, GeometryCalculation,payload.parent_calculation_id,"Calculul structural părinte nu există.")
+        if parent.project_id != project_id: raise HTTPException(status_code=422,detail="Elementul structural aparține altui proiect.")
+    row=GeometryCalculation(project_id=project_id, results=json_decimals(results), calculated_quantity=geometry_with_waste(base,payload.waste_percent), calculated_unit=GEOMETRY_UNITS[payload.selected_result], **payload.model_dump())
+    row.input_data=json_decimals(payload.input_data); db.add(row); db.flush()
+    if payload.estimate_item_id is not None:
+        link=GeometryEstimateLink(geometry_calculation_id=row.id,estimate_item_id=payload.estimate_item_id,result_key=payload.selected_result,waste_percent=payload.waste_percent); db.add(link); synchronize_geometry_link(db,row,link)
+    db.commit(); db.refresh(row); return geometry_dict(row)
+
+@app.put("/api/geometry/{calculation_id}")
+def update_geometry(calculation_id: int, payload: GeometryCalculationIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row=require_entity(db,GeometryCalculation,calculation_id,"Calculul geometric nu există."); results=calculate_geometry_payload(payload); base=results[payload.selected_result]
+    values=payload.model_dump(); values["input_data"]=json_decimals(payload.input_data); values["results"]=json_decimals(results); values["calculated_quantity"]=geometry_with_waste(base,payload.waste_percent); values["calculated_unit"]=GEOMETRY_UNITS[payload.selected_result]
+    for key,value in values.items(): setattr(row,key,value)
+    db.flush()
+    for link in db.scalars(select(GeometryEstimateLink).where(GeometryEstimateLink.geometry_calculation_id==row.id)): synchronize_geometry_link(db,row,link)
+    db.commit(); db.refresh(row); return geometry_dict(row)
+
+@app.delete("/api/geometry/{calculation_id}", status_code=204)
+def delete_geometry(calculation_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row=require_entity(db,GeometryCalculation,calculation_id,"Calculul geometric nu există."); db.delete(row); db.commit(); return Response(status_code=204)
+
+@app.post("/api/geometry/{calculation_id}/links", status_code=201)
+def link_geometry(calculation_id: int, payload: GeometryLinkIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row=require_entity(db,GeometryCalculation,calculation_id,"Calculul geometric nu există.");
+    if project_for_item(db,payload.estimate_item_id)!=row.project_id: raise HTTPException(status_code=422,detail="Articolul aparține altui proiect.")
+    link=GeometryEstimateLink(geometry_calculation_id=row.id,**payload.model_dump()); db.add(link); synchronize_geometry_link(db,row,link); commit_or_conflict(db,"Rezultatul este deja legat la acest articol."); db.refresh(link); return link
+
+@app.post("/api/geometry/{calculation_id}/create-item", response_model=EstimateItemOut, status_code=201)
+def geometry_create_item(calculation_id: int, payload: GeometryCreateItemIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    row=require_entity(db,GeometryCalculation,calculation_id,"Calculul geometric nu există."); section=require_entity(db,EstimateSection,payload.section_id,"Capitolul nu există.")
+    section_project=db.scalar(select(Building.project_id).join(Level,Level.building_id==Building.id).join(EstimateSection,EstimateSection.level_id==Level.id).where(EstimateSection.id==section.id))
+    if section_project != row.project_id: raise HTTPException(status_code=422,detail="Capitolul aparține altui proiect.")
+    if payload.work_item_id is not None: require_entity(db,WorkItem,payload.work_item_id,"Lucrarea standard nu există.")
+    results={key:Decimal(str(value)) for key,value in row.results.items()}
+    if payload.result_key not in results: raise HTTPException(status_code=422,detail="Rezultatul geometric selectat nu există.")
+    item=EstimateItem(section_id=section.id,code=payload.code,description=payload.description,unit=GEOMETRY_UNITS[payload.result_key],quantity=geometry_with_waste(results[payload.result_key],payload.waste_percent),waste_percent=payload.waste_percent,work_item_id=payload.work_item_id,calculation_type="GEOMETRY",calculation_inputs={"geometry_calculation_id":row.id,"result_key":payload.result_key})
+    db.add(item); db.flush(); link=GeometryEstimateLink(geometry_calculation_id=row.id,estimate_item_id=item.id,result_key=payload.result_key,waste_percent=payload.waste_percent); db.add(link)
+    if item.work_item_id is not None: generate_recipe_resources(item.id,db,None)
+    db.commit(); db.refresh(item); return item
+
+@app.get("/api/catalog/mesh")
+def list_mesh(db: Session = Depends(get_db), _: User = Depends(current_user)): return list(db.scalars(select(MeshCatalogueItem).order_by(MeshCatalogueItem.code)))
+
+@app.post("/api/catalog/mesh", status_code=201)
+def create_mesh(payload: MeshCatalogueIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    values=payload.model_dump(); values["sheet_area_m2"]=payload.sheet_length_m*payload.sheet_width_m; row=MeshCatalogueItem(**values); db.add(row); commit_or_conflict(db,"Codul plasei există deja."); db.refresh(row); return row

@@ -1,0 +1,9 @@
+[project]
+name = "vfe-deviz-worker"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "SQLAlchemy==2.0.51",
+  "psycopg[binary]>=3.2,<4",
+  "playwright==1.62.0"
+]

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>vfe-deviz-worker</Name>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-worker:0.1.0</Repository>
+  <Network>vfe-deviz</Network>
+  <Config Name="Database URL" Target="DATABASE_URL" Default="postgresql+psycopg://deviz:CHANGE_ME@vfe-deviz-postgres:5432/deviz" Mode="" Type="Variable" Display="always"/>
+  <Config Name="Refresh interval" Target="REFRESH_INTERVAL_SECONDS" Default="86400" Mode="" Type="Variable" Display="always"/>
+</Container>

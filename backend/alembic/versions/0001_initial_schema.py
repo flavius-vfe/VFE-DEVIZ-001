@@ -1,0 +1,213 @@
+"""initial schema
+
+Revision ID: 0001_initial_schema
+Revises:
+Create Date: 2026-08-20
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = "0001_initial_schema"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+def upgrade() -> None:
+    op.create_table("system_settings",
+        sa.Column("key", sa.String(100), primary_key=True),
+        sa.Column("value", sa.Text(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table("users",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("username", sa.String(100), nullable=False, unique=True),
+        sa.Column("password_hash", sa.Text(), nullable=False),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("password_changed_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table("user_sessions",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("token_hash", sa.String(64), nullable=False, unique=True),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table("suppliers",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("name", sa.String(160), nullable=False, unique=True),
+        sa.Column("type", sa.String(50), nullable=False),
+        sa.Column("website", sa.Text()),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("notes", sa.Text()),
+    )
+    op.create_table("projects",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("name", sa.String(255), nullable=False),
+        sa.Column("client", sa.String(255)),
+        sa.Column("delivery_address", sa.Text()),
+        sa.Column("locality", sa.String(120), nullable=False),
+        sa.Column("county", sa.String(120), nullable=False),
+        sa.Column("postal_code", sa.String(20)),
+        sa.Column("default_waste_percent", sa.Numeric(7,3), nullable=False),
+        sa.Column("preferred_supplier_id", sa.Integer(), sa.ForeignKey("suppliers.id")),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table("project_buildings",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("project_id", sa.Integer(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("name", sa.String(160), nullable=False),
+        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.create_table("project_levels",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("building_id", sa.Integer(), sa.ForeignKey("project_buildings.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("name", sa.String(160), nullable=False),
+        sa.Column("elevation_m", sa.Numeric(9,3)),
+        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.create_table("estimate_sections",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("level_id", sa.Integer(), sa.ForeignKey("project_levels.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("parent_section_id", sa.Integer(), sa.ForeignKey("estimate_sections.id", ondelete="CASCADE")),
+        sa.Column("code", sa.String(50), nullable=False),
+        sa.Column("name", sa.String(255), nullable=False),
+        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.create_table("materials",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("canonical_name", sa.String(255), nullable=False),
+        sa.Column("category", sa.String(160), nullable=False),
+        sa.Column("base_unit", sa.String(20), nullable=False),
+        sa.Column("attributes", sa.JSON(), nullable=False),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    )
+    op.create_table("work_items",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("code", sa.String(80), nullable=False, unique=True),
+        sa.Column("category", sa.String(160), nullable=False),
+        sa.Column("name", sa.String(255), nullable=False),
+        sa.Column("description", sa.Text()),
+        sa.Column("unit", sa.String(20), nullable=False),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    )
+    op.create_table("work_recipes",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("work_item_id", sa.Integer(), sa.ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("scope", sa.String(30), nullable=False),
+        sa.Column("valid_from", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint("work_item_id", "version", name="uq_recipe_version"),
+    )
+    op.create_table("recipe_resources",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("recipe_id", sa.Integer(), sa.ForeignKey("work_recipes.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("resource_type", sa.String(30), nullable=False),
+        sa.Column("resource_id", sa.Integer()),
+        sa.Column("description", sa.String(255), nullable=False),
+        sa.Column("unit", sa.String(20), nullable=False),
+        sa.Column("quantity_per_unit", sa.Numeric(18,6), nullable=False),
+        sa.Column("waste_percent", sa.Numeric(7,3), nullable=False),
+        sa.Column("formula", sa.Text()),
+    )
+    op.create_table("estimate_items",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("section_id", sa.Integer(), sa.ForeignKey("estimate_sections.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("work_item_id", sa.Integer(), sa.ForeignKey("work_items.id")),
+        sa.Column("code", sa.String(80), nullable=False),
+        sa.Column("description", sa.String(255), nullable=False),
+        sa.Column("unit", sa.String(20), nullable=False),
+        sa.Column("quantity", sa.Numeric(18,6), nullable=False),
+        sa.Column("calculation_type", sa.String(30), nullable=False),
+        sa.Column("calculation_inputs", sa.JSON(), nullable=False),
+        sa.Column("waste_percent", sa.Numeric(7,3), nullable=False),
+        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.create_table("supplier_locations",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("supplier_id", sa.Integer(), sa.ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("name", sa.String(255), nullable=False),
+        sa.Column("locality", sa.String(160)),
+        sa.Column("county", sa.String(160)),
+        sa.Column("address", sa.Text()),
+        sa.Column("preferred", sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
+    op.create_table("supplier_products",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("supplier_id", sa.Integer(), sa.ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("supplier_sku", sa.String(120), nullable=False),
+        sa.Column("name", sa.String(500), nullable=False),
+        sa.Column("brand", sa.String(200)),
+        sa.Column("product_url", sa.Text(), nullable=False),
+        sa.Column("package_quantity", sa.Numeric(18,6)),
+        sa.Column("package_unit", sa.String(20)),
+        sa.Column("normalized_quantity", sa.Numeric(18,6)),
+        sa.Column("normalized_unit", sa.String(20)),
+        sa.Column("attributes", sa.JSON(), nullable=False),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("last_seen_at", sa.DateTime(timezone=True)),
+        sa.UniqueConstraint("supplier_id", "supplier_sku", name="uq_supplier_sku"),
+    )
+    op.create_table("product_matches",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("material_id", sa.Integer(), sa.ForeignKey("materials.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("supplier_product_id", sa.Integer(), sa.ForeignKey("supplier_products.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("confidence", sa.Numeric(5,4), nullable=False),
+        sa.Column("approved", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("matching_notes", sa.Text()),
+        sa.UniqueConstraint("material_id", "supplier_product_id", name="uq_material_product_match"),
+    )
+    op.create_table("price_observations",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("supplier_product_id", sa.Integer(), sa.ForeignKey("supplier_products.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("supplier_location_id", sa.Integer(), sa.ForeignKey("supplier_locations.id")),
+        sa.Column("price_net", sa.Numeric(18,4)),
+        sa.Column("vat_rate", sa.Numeric(7,3), nullable=False),
+        sa.Column("price_gross", sa.Numeric(18,4), nullable=False),
+        sa.Column("currency", sa.String(3), nullable=False),
+        sa.Column("stock_status", sa.String(40), nullable=False),
+        sa.Column("source", sa.String(40), nullable=False),
+        sa.Column("checked_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("success", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("error_message", sa.Text()),
+    )
+    op.create_index("ix_price_product_checked", "price_observations", ["supplier_product_id", "checked_at"])
+    op.create_table("estimate_versions",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("project_id", sa.Integer(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("status", sa.String(30), nullable=False),
+        sa.Column("vat_rate", sa.Numeric(7,3), nullable=False),
+        sa.Column("total_net", sa.Numeric(18,2), nullable=False),
+        sa.Column("vat_total", sa.Numeric(18,2), nullable=False),
+        sa.Column("total_gross", sa.Numeric(18,2), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("issued_at", sa.DateTime(timezone=True)),
+    )
+    op.create_table("estimate_snapshot_lines",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("estimate_version_id", sa.Integer(), sa.ForeignKey("estimate_versions.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("source_item_id", sa.Integer()),
+        sa.Column("resource_type", sa.String(30), nullable=False),
+        sa.Column("description", sa.String(500), nullable=False),
+        sa.Column("unit", sa.String(20), nullable=False),
+        sa.Column("quantity", sa.Numeric(18,6), nullable=False),
+        sa.Column("unit_price_net", sa.Numeric(18,4), nullable=False),
+        sa.Column("vat_rate", sa.Numeric(7,3), nullable=False),
+        sa.Column("unit_price_gross", sa.Numeric(18,4), nullable=False),
+        sa.Column("total_gross", sa.Numeric(18,2), nullable=False),
+        sa.Column("supplier_name", sa.String(160)),
+        sa.Column("supplier_sku", sa.String(120)),
+        sa.Column("product_url", sa.Text()),
+        sa.Column("price_checked_at", sa.DateTime(timezone=True)),
+    )
+
+def downgrade() -> None:
+    for table in [
+        "estimate_snapshot_lines", "estimate_versions", "price_observations", "product_matches",
+        "supplier_products", "supplier_locations", "estimate_items", "recipe_resources",
+        "work_recipes", "work_items", "materials", "estimate_sections", "project_levels",
+        "project_buildings", "projects", "suppliers", "user_sessions", "users", "system_settings"
+    ]:
+        op.drop_table(table)

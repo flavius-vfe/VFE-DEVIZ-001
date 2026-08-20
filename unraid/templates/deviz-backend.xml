@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>vfe-deviz-backend</Name>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-backend:0.1.0</Repository>
+  <Network>vfe-deviz</Network>
+  <Config Name="API" Target="8000" Default="8030" Mode="tcp" Description="Backend API" Type="Port" Display="always"/>
+  <Config Name="Database URL" Target="DATABASE_URL" Default="postgresql+psycopg://deviz:CHANGE_ME@vfe-deviz-postgres:5432/deviz" Mode="" Description="Conexiune PostgreSQL internă" Type="Variable" Display="always"/>
+  <Config Name="Frontend port" Target="FRONTEND_PORT" Default="3080" Mode="" Description="Port frontend host" Type="Variable" Display="always"/>
+  <Config Name="Session days" Target="SESSION_DAYS" Default="7" Mode="" Description="Durata sesiunii" Type="Variable" Display="always"/>
+  <Config Name="Server IP" Target="SERVER_IP" Default="192.168.0.50" Mode="" Description="IP LAN introdus manual" Type="Variable" Display="always"/>
+  <Config Name="Data" Target="/data" Default="/mnt/user/deviz-data" Mode="rw" Description="Documente și proiecte" Type="Path" Display="always"/>
+</Container>

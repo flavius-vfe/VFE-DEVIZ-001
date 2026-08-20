@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>vfe-deviz-frontend</Name>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.0</Repository>
+  <Network>vfe-deviz</Network>
+  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
+  <Config Name="Web UI" Target="3000" Default="3080" Mode="tcp" Description="Frontend" Type="Port" Display="always"/>
+</Container>

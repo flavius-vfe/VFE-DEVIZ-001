@@ -110,6 +110,3 @@ Criterii de acceptanță:
 - upgrade-urile DB se fac numai prin Alembic;
 - release-urile se construiesc automat din tag-uri Git.
 
-## Need Professional Help in Developing Your Architecture?
-
-Please contact me at [sammuti.com](https://sammuti.com) :)

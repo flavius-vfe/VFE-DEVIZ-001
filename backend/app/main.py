@@ -27,7 +27,7 @@ from .calc import (
     packages_required, room_geometry, steel_total_kg, money
 )
 
-app = FastAPI(title="VFE Deviz API", version="0.1.0")
+app = FastAPI(title="VFE Deviz API", version="0.1.2")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -47,7 +47,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.0"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.2"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -74,7 +74,7 @@ def setup(payload: SetupIn, db: Session = Depends(get_db)):
         "default_locality": payload.locality,
         "default_county": payload.county,
         "default_vat_rate": str(payload.vat_rate),
-        "default_currency": "RON",
+        "default_currency": payload.currency,
         "default_locale": "ro-RO",
     }
     for key, value in settings_to_save.items():

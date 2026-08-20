@@ -2,9 +2,12 @@
 <Container version="2">
   <Name>vfe-deviz-postgres</Name>
   <Repository>postgres:18.6</Repository>
+  <Registry>https://hub.docker.com/_/postgres</Registry>
   <Network>vfe-deviz</Network>
-  <Config Name="Database" Target="POSTGRES_DB" Default="deviz" Mode="" Type="Variable" Display="always"/>
-  <Config Name="User" Target="POSTGRES_USER" Default="deviz" Mode="" Type="Variable" Display="always"/>
-  <Config Name="Password" Target="POSTGRES_PASSWORD" Default="" Mode="" Type="Variable" Display="always" Mask="true"/>
-  <Config Name="PostgreSQL data" Target="/var/lib/postgresql/data" Default="/mnt/user/appdata/deviz/postgresql" Mode="rw" Type="Path" Display="always"/>
+  <Overview>PostgreSQL 18.6 pentru VFE Deviz. Nu publica portul 5432.</Overview>
+  <Category>Tools:</Category>
+  <Config Name="Database" Target="POSTGRES_DB" Default="deviz" Mode="" Description="Numele bazei de date" Type="Variable" Display="always" Required="true"/>
+  <Config Name="User" Target="POSTGRES_USER" Default="deviz" Mode="" Description="Utilizatorul bazei de date" Type="Variable" Display="always" Required="true"/>
+  <Config Name="Password" Target="POSTGRES_PASSWORD" Default="" Mode="" Description="Parolă puternică; reutilizeaz-o în DATABASE_URL" Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="PostgreSQL data" Target="/var/lib/postgresql" Default="/mnt/user/appdata/vfe-deviz/postgres" Mode="rw" Description="Date PostgreSQL 18 persistente" Type="Path" Display="always" Required="true"/>
 </Container>

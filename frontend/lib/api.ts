@@ -1,7 +1,14 @@
+declare global {
+  interface Window {
+    __VFE_DEVIZ_CONFIG__?: { API_URL?: string };
+  }
+}
+
 export function apiBase(): string {
   if (typeof window === "undefined") return "";
-  const port = 8030;
-  return `${window.location.protocol}//${window.location.hostname}:${port}`;
+  const override = window.__VFE_DEVIZ_CONFIG__?.API_URL?.trim();
+  if (override) return override.replace(/\/$/, "");
+  return `${window.location.protocol}//${window.location.hostname}:8030`;
 }
 
 export async function api(path: string, options: RequestInit = {}) {

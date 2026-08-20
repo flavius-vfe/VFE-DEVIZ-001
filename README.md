@@ -4,7 +4,7 @@ Aplicație locală, în limba română, pentru devize de construcții, liste de 
 costuri, achiziții și urmărirea execuției.
 
 ## Stadiu
-Increment funcțional inițial (`0.1.0`):
+Increment funcțional instalabil pe Unraid (`0.1.2`):
 - API FastAPI
 - PostgreSQL + Alembic
 - configurare inițială administrator
@@ -43,3 +43,5 @@ Pe Unraid se folosesc porturile host 3080/8030.
 - acces remote numai prin VPN existent.
 
 Consultați `docs/SPEC-001-DEVIZ-CONSTRUCTII.md`.
+
+Pentru instalarea de producție consultați [`docs/UNRAID-INSTALL.md`](docs/UNRAID-INSTALL.md).

@@ -17,5 +17,9 @@ ENV PORT=3000
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3000
-CMD ["node", "server.js"]
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=6 \
+  CMD wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
+ENTRYPOINT ["./docker-entrypoint.sh"]

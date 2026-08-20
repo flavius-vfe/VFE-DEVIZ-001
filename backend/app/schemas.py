@@ -11,6 +11,7 @@ class SetupIn(BaseModel):
     server_ip: str
     locality: str = "Ceahlău"
     county: str = "Neamț"
+    currency: str = Field(default="RON", pattern="^RON$")
     vat_rate: Decimal = Field(default=Decimal("21"), ge=0, le=100)
 
 class LoginIn(BaseModel):

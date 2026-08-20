@@ -51,8 +51,16 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+  installation-smoke:
+    needs: verify-main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke test instalare Docker / Unraid
+        run: bash scripts/install-smoke.sh
+
   build:
-    needs: [backend-tests, frontend-tests]
+    needs: [backend-tests, frontend-tests, installation-smoke]
     runs-on: ubuntu-latest
     strategy:
       matrix:

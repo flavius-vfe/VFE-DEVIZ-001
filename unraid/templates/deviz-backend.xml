@@ -1,12 +1,17 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vfe-deviz-backend</Name>
-  <Repository>ghcr.io/flavius-vfe/vfe-deviz-backend:0.1.0</Repository>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-backend:0.1.2</Repository>
+  <Registry>https://github.com/flavius-vfe/VFE-DEVIZ-001/pkgs/container/vfe-deviz-backend</Registry>
   <Network>vfe-deviz</Network>
-  <Config Name="API" Target="8000" Default="8030" Mode="tcp" Description="Backend API" Type="Port" Display="always"/>
-  <Config Name="Database URL" Target="DATABASE_URL" Default="postgresql+psycopg://deviz:CHANGE_ME@vfe-deviz-postgres:5432/deviz" Mode="" Description="Conexiune PostgreSQL internă" Type="Variable" Display="always"/>
-  <Config Name="Frontend port" Target="FRONTEND_PORT" Default="3080" Mode="" Description="Port frontend host" Type="Variable" Display="always"/>
-  <Config Name="Session days" Target="SESSION_DAYS" Default="7" Mode="" Description="Durata sesiunii" Type="Variable" Display="always"/>
-  <Config Name="Server IP" Target="SERVER_IP" Default="192.168.0.50" Mode="" Description="IP LAN introdus manual" Type="Variable" Display="always"/>
-  <Config Name="Data" Target="/data" Default="/mnt/user/deviz-data" Mode="rw" Description="Documente și proiecte" Type="Path" Display="always"/>
+  <WebUI>http://[IP]:[PORT:8000]/docs</WebUI>
+  <Overview>API VFE Deviz; rulează automat migrațiile Alembic înainte de pornire.</Overview>
+  <Category>Tools:</Category>
+  <Config Name="API" Target="8000" Default="8030" Mode="tcp" Description="Port LAN 8030 către portul 8000 din container" Type="Port" Display="always" Required="true"/>
+  <Config Name="Database URL" Target="DATABASE_URL" Default="postgresql+psycopg://deviz:CHANGE_ME@vfe-deviz-postgres:5432/deviz" Mode="" Description="Înlocuiește CHANGE_ME cu aceeași parolă ca la PostgreSQL" Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Frontend port" Target="FRONTEND_PORT" Default="3080" Mode="" Description="Portul LAN al frontend-ului pentru CORS" Type="Variable" Display="always" Required="true"/>
+  <Config Name="Session days" Target="SESSION_DAYS" Default="7" Mode="" Description="Durata sesiunii administratorului" Type="Variable" Display="always" Required="true"/>
+  <Config Name="Server IP" Target="SERVER_IP" Default="192.168.0.50" Mode="" Description="IP-ul LAN real al serverului Unraid, folosit de CORS" Type="Variable" Display="always" Required="true"/>
+  <Config Name="Backend appdata" Target="/appdata" Default="/mnt/user/appdata/vfe-deviz/backend" Mode="rw" Description="Date persistente backend" Type="Path" Display="always" Required="true"/>
+  <Config Name="Deviz data" Target="/data" Default="/mnt/user/deviz-data" Mode="rw" Description="Documente și exporturi proiect" Type="Path" Display="always" Required="true"/>
 </Container>

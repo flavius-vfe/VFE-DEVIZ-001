@@ -55,6 +55,9 @@ export default function Home() {
 
 function Setup({onDone, onError}:{onDone:()=>void,onError:(s:string)=>void}) {
   const [password, setPassword] = useState("");
+  const [locality, setLocality] = useState("Ceahlău");
+  const [county, setCounty] = useState("Neamț");
+  const [vatRate, setVatRate] = useState("21");
   const [serverIp, setServerIp] = useState(
     typeof window !== "undefined" ? window.location.hostname : "192.168.0.50"
   );
@@ -67,9 +70,10 @@ function Setup({onDone, onError}:{onDone:()=>void,onError:(s:string)=>void}) {
           username:"administrator",
           password,
           server_ip:serverIp,
-          locality:"Ceahlău",
-          county:"Neamț",
-          vat_rate:"21"
+          locality,
+          county,
+          currency:"RON",
+          vat_rate:vatRate
         })
       });
       onDone();
@@ -77,10 +81,17 @@ function Setup({onDone, onError}:{onDone:()=>void,onError:(s:string)=>void}) {
   }
   return <div className="card">
     <h2>Configurare inițială</h2>
-    <p>Introdu manual IP-ul serverului Unraid. TVA implicit: <strong>21%</strong>.</p>
+    <p>Introdu manual IP-ul serverului Unraid și valorile implicite pentru devize.</p>
     <form onSubmit={submit}>
       <label>IP server</label>
       <input value={serverIp} onChange={e=>setServerIp(e.target.value)} placeholder="192.168.0.50" required/>
+      <label>Localitate implicită</label>
+      <input value={locality} onChange={e=>setLocality(e.target.value)} required/>
+      <label>Județ implicit</label>
+      <input value={county} onChange={e=>setCounty(e.target.value)} required/>
+      <label>Monedă</label><input value="RON" disabled/>
+      <label>TVA implicit (%)</label>
+      <input type="number" min="0" max="100" step="0.01" value={vatRate} onChange={e=>setVatRate(e.target.value)} required/>
       <label>Utilizator</label><input value="administrator" disabled/>
       <label>Parolă administrator</label>
       <input type="password" minLength={10} value={password} onChange={e=>setPassword(e.target.value)} required/>

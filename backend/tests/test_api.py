@@ -23,6 +23,7 @@ def test_setup_login_project_flow(client):
         "username": "administrator", "password": "Parola-Foarte-Sigura-123!"
     })
     assert good.status_code == 200
+    assert "Max-Age=604800" in good.headers["set-cookie"]
     assert client.get("/api/auth/me").status_code == 200
 
     project = client.post("/api/projects", json={
@@ -40,6 +41,15 @@ def test_setup_login_project_flow(client):
     out = client.post("/api/auth/logout")
     assert out.status_code == 204
     assert client.get("/api/auth/me").status_code == 401
+
+def test_cors_allows_configured_unraid_frontend(client):
+    response = client.options("/api/auth/login", headers={
+        "Origin": "http://192.168.0.50:3080",
+        "Access-Control-Request-Method": "POST",
+    })
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://192.168.0.50:3080"
+    assert response.headers["access-control-allow-credentials"] == "true"
 
 def test_calc_endpoints(authenticated_client):
     c = authenticated_client

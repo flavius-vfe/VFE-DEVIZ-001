@@ -1,8 +1,12 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vfe-deviz-frontend</Name>
-  <Repository>ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.0</Repository>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.2</Repository>
+  <Registry>https://github.com/flavius-vfe/VFE-DEVIZ-001/pkgs/container/vfe-deviz-frontend</Registry>
   <Network>vfe-deviz</Network>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
-  <Config Name="Web UI" Target="3000" Default="3080" Mode="tcp" Description="Frontend" Type="Port" Display="always"/>
+  <Overview>Interfața web VFE Deviz. Accesează API-ul direct, fără reverse proxy.</Overview>
+  <Category>Tools:</Category>
+  <Config Name="Web UI" Target="3000" Default="3080" Mode="tcp" Description="Port LAN 3080 către portul 3000 din container" Type="Port" Display="always" Required="true"/>
+  <Config Name="API URL override" Target="API_BASE_URL" Default="" Mode="" Description="Opțional; implicit folosește hostname-ul browserului și portul 8030" Type="Variable" Display="always" Required="false"/>
 </Container>

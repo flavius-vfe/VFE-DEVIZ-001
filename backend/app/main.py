@@ -8,10 +8,15 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
-from .models import SystemSetting, User, UserSession, Project
+from .models import (
+    SystemSetting, User, UserSession, Project, Building, Level,
+    EstimateSection, EstimateItem, WorkItem,
+)
 from .schemas import (
     SetupStatusOut, SetupIn, LoginIn, UserOut,
-    ProjectIn, ProjectOut, VatCalcIn, PackageCalcIn, RoomCalcIn, SteelCalcIn
+    ProjectIn, ProjectOut, BuildingIn, BuildingOut, LevelIn, LevelOut,
+    SectionIn, SectionOut, EstimateItemIn, EstimateItemOut,
+    VatCalcIn, PackageCalcIn, RoomCalcIn, SteelCalcIn
 )
 from .security import (
     hash_password, verify_password, new_session_token, hash_session_token, session_expiry
@@ -149,6 +154,74 @@ def get_project(
     if not project:
         raise HTTPException(status_code=404, detail="Proiectul nu există.")
     return project
+
+def require_entity(db: Session, model, entity_id: int, detail: str):
+    entity = db.get(model, entity_id)
+    if not entity:
+        raise HTTPException(status_code=404, detail=detail)
+    return entity
+
+@app.get("/api/projects/{project_id}/buildings", response_model=list[BuildingOut])
+def list_buildings(project_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există.")
+    return list(db.scalars(select(Building).where(Building.project_id == project_id).order_by(Building.sort_order, Building.id)))
+
+@app.post("/api/projects/{project_id}/buildings", response_model=BuildingOut, status_code=201)
+def create_building(project_id: int, payload: BuildingIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Project, project_id, "Proiectul nu există.")
+    building = Building(project_id=project_id, **payload.model_dump())
+    db.add(building)
+    db.commit()
+    db.refresh(building)
+    return building
+
+@app.get("/api/buildings/{building_id}/levels", response_model=list[LevelOut])
+def list_levels(building_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Building, building_id, "Corpul nu există.")
+    return list(db.scalars(select(Level).where(Level.building_id == building_id).order_by(Level.sort_order, Level.id)))
+
+@app.post("/api/buildings/{building_id}/levels", response_model=LevelOut, status_code=201)
+def create_level(building_id: int, payload: LevelIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Building, building_id, "Corpul nu există.")
+    level = Level(building_id=building_id, **payload.model_dump())
+    db.add(level)
+    db.commit()
+    db.refresh(level)
+    return level
+
+@app.get("/api/levels/{level_id}/sections", response_model=list[SectionOut])
+def list_sections(level_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Level, level_id, "Nivelul nu există.")
+    return list(db.scalars(select(EstimateSection).where(EstimateSection.level_id == level_id).order_by(EstimateSection.sort_order, EstimateSection.id)))
+
+@app.post("/api/levels/{level_id}/sections", response_model=SectionOut, status_code=201)
+def create_section(level_id: int, payload: SectionIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, Level, level_id, "Nivelul nu există.")
+    if payload.parent_section_id is not None:
+        parent = require_entity(db, EstimateSection, payload.parent_section_id, "Capitolul părinte nu există.")
+        if parent.level_id != level_id:
+            raise HTTPException(status_code=422, detail="Capitolul părinte aparține altui nivel.")
+    section = EstimateSection(level_id=level_id, **payload.model_dump())
+    db.add(section)
+    db.commit()
+    db.refresh(section)
+    return section
+
+@app.get("/api/sections/{section_id}/items", response_model=list[EstimateItemOut])
+def list_estimate_items(section_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, EstimateSection, section_id, "Capitolul nu există.")
+    return list(db.scalars(select(EstimateItem).where(EstimateItem.section_id == section_id).order_by(EstimateItem.sort_order, EstimateItem.id)))
+
+@app.post("/api/sections/{section_id}/items", response_model=EstimateItemOut, status_code=201)
+def create_estimate_item(section_id: int, payload: EstimateItemIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    require_entity(db, EstimateSection, section_id, "Capitolul nu există.")
+    if payload.work_item_id is not None:
+        require_entity(db, WorkItem, payload.work_item_id, "Lucrarea standard nu există.")
+    item = EstimateItem(section_id=section_id, **payload.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
 
 @app.post("/api/calc/vat")
 def calc_vat(payload: VatCalcIn, _: User = Depends(current_user)):

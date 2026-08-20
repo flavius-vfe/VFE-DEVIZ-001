@@ -59,3 +59,40 @@ def test_calc_endpoints(authenticated_client):
         "length_m": "4", "width_m": "3.5", "height_m": "2.7", "openings_m2": "4.59"
     }).json()
     assert room["wall_net_m2"] == 35.91
+
+def test_boq_hierarchy_flow(authenticated_client):
+    c = authenticated_client
+    project = c.post("/api/projects", json={"name": "Casă BOQ"}).json()
+    building = c.post(f"/api/projects/{project['id']}/buildings", json={"name": "Corp principal"})
+    assert building.status_code == 201
+    building_id = building.json()["id"]
+
+    level = c.post(f"/api/buildings/{building_id}/levels", json={"name": "Parter", "elevation_m": "0"})
+    assert level.status_code == 201
+    level_id = level.json()["id"]
+
+    section = c.post(f"/api/levels/{level_id}/sections", json={"code": "01", "name": "Fundații"})
+    assert section.status_code == 201
+    section_id = section.json()["id"]
+
+    item = c.post(f"/api/sections/{section_id}/items", json={
+        "code": "01.001", "description": "Beton fundații", "unit": "m3", "quantity": "19.2"
+    })
+    assert item.status_code == 201
+    assert item.json()["quantity"] == "19.200000"
+    assert c.get(f"/api/projects/{project['id']}/buildings").json()[0]["name"] == "Corp principal"
+    assert c.get(f"/api/buildings/{building_id}/levels").json()[0]["name"] == "Parter"
+    assert c.get(f"/api/levels/{level_id}/sections").json()[0]["name"] == "Fundații"
+    assert c.get(f"/api/sections/{section_id}/items").json()[0]["code"] == "01.001"
+
+def test_boq_hierarchy_rejects_cross_level_parent(authenticated_client):
+    c = authenticated_client
+    project = c.post("/api/projects", json={"name": "Validare BOQ"}).json()
+    building = c.post(f"/api/projects/{project['id']}/buildings", json={"name": "Corp"}).json()
+    level_a = c.post(f"/api/buildings/{building['id']}/levels", json={"name": "Parter"}).json()
+    level_b = c.post(f"/api/buildings/{building['id']}/levels", json={"name": "Etaj"}).json()
+    parent = c.post(f"/api/levels/{level_a['id']}/sections", json={"code": "01", "name": "Structură"}).json()
+    response = c.post(f"/api/levels/{level_b['id']}/sections", json={
+        "code": "01.01", "name": "Invalid", "parent_section_id": parent["id"]
+    })
+    assert response.status_code == 422

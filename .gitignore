@@ -4,10 +4,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.venv/
+*.sqlite3
 node_modules/
 .next/
-coverage/
 dist/
-*.sqlite3
+build/
+*.log
 .DS_Store

@@ -1,1 +1,35 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
 
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[test]"
+      - run: pytest
+      - run: DATABASE_URL=sqlite:///./migration-test.sqlite3 alembic upgrade head
+      - run: DATABASE_URL=sqlite:///./migration-test.sqlite3 alembic check
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build

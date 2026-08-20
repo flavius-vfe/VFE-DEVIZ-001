@@ -27,7 +27,7 @@ from .calc import (
     packages_required, room_geometry, steel_total_kg, money
 )
 
-app = FastAPI(title="VFE Deviz API", version="0.1.2")
+app = FastAPI(title="VFE Deviz API", version="0.1.3")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -47,7 +47,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.2"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.3"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -175,6 +175,22 @@ def create_building(project_id: int, payload: BuildingIn, db: Session = Depends(
     db.refresh(building)
     return building
 
+@app.put("/api/buildings/{building_id}", response_model=BuildingOut)
+def update_building(building_id: int, payload: BuildingIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    building = require_entity(db, Building, building_id, "Corpul nu există.")
+    for key, value in payload.model_dump().items():
+        setattr(building, key, value)
+    db.commit()
+    db.refresh(building)
+    return building
+
+@app.delete("/api/buildings/{building_id}", status_code=204)
+def delete_building(building_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    building = require_entity(db, Building, building_id, "Corpul nu există.")
+    db.delete(building)
+    db.commit()
+    return Response(status_code=204)
+
 @app.get("/api/buildings/{building_id}/levels", response_model=list[LevelOut])
 def list_levels(building_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
     require_entity(db, Building, building_id, "Corpul nu există.")
@@ -188,6 +204,22 @@ def create_level(building_id: int, payload: LevelIn, db: Session = Depends(get_d
     db.commit()
     db.refresh(level)
     return level
+
+@app.put("/api/levels/{level_id}", response_model=LevelOut)
+def update_level(level_id: int, payload: LevelIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    level = require_entity(db, Level, level_id, "Nivelul nu există.")
+    for key, value in payload.model_dump().items():
+        setattr(level, key, value)
+    db.commit()
+    db.refresh(level)
+    return level
+
+@app.delete("/api/levels/{level_id}", status_code=204)
+def delete_level(level_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    level = require_entity(db, Level, level_id, "Nivelul nu există.")
+    db.delete(level)
+    db.commit()
+    return Response(status_code=204)
 
 @app.get("/api/levels/{level_id}/sections", response_model=list[SectionOut])
 def list_sections(level_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
@@ -207,6 +239,28 @@ def create_section(level_id: int, payload: SectionIn, db: Session = Depends(get_
     db.refresh(section)
     return section
 
+@app.put("/api/sections/{section_id}", response_model=SectionOut)
+def update_section(section_id: int, payload: SectionIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    section = require_entity(db, EstimateSection, section_id, "Capitolul nu există.")
+    if payload.parent_section_id == section_id:
+        raise HTTPException(status_code=422, detail="Un capitol nu poate fi propriul părinte.")
+    if payload.parent_section_id is not None:
+        parent = require_entity(db, EstimateSection, payload.parent_section_id, "Capitolul părinte nu există.")
+        if parent.level_id != section.level_id:
+            raise HTTPException(status_code=422, detail="Capitolul părinte aparține altui nivel.")
+    for key, value in payload.model_dump().items():
+        setattr(section, key, value)
+    db.commit()
+    db.refresh(section)
+    return section
+
+@app.delete("/api/sections/{section_id}", status_code=204)
+def delete_section(section_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    section = require_entity(db, EstimateSection, section_id, "Capitolul nu există.")
+    db.delete(section)
+    db.commit()
+    return Response(status_code=204)
+
 @app.get("/api/sections/{section_id}/items", response_model=list[EstimateItemOut])
 def list_estimate_items(section_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
     require_entity(db, EstimateSection, section_id, "Capitolul nu există.")
@@ -222,6 +276,24 @@ def create_estimate_item(section_id: int, payload: EstimateItemIn, db: Session =
     db.commit()
     db.refresh(item)
     return item
+
+@app.put("/api/estimate-items/{item_id}", response_model=EstimateItemOut)
+def update_estimate_item(item_id: int, payload: EstimateItemIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    item = require_entity(db, EstimateItem, item_id, "Articolul de deviz nu există.")
+    if payload.work_item_id is not None:
+        require_entity(db, WorkItem, payload.work_item_id, "Lucrarea standard nu există.")
+    for key, value in payload.model_dump().items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    return item
+
+@app.delete("/api/estimate-items/{item_id}", status_code=204)
+def delete_estimate_item(item_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    item = require_entity(db, EstimateItem, item_id, "Articolul de deviz nu există.")
+    db.delete(item)
+    db.commit()
+    return Response(status_code=204)
 
 @app.post("/api/calc/vat")
 def calc_vat(payload: VatCalcIn, _: User = Depends(current_user)):

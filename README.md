@@ -4,7 +4,7 @@ Aplicație locală, în limba română, pentru devize de construcții, liste de 
 costuri, achiziții și urmărirea execuției.
 
 ## Stadiu
-Increment funcțional instalabil pe Unraid (`0.1.2`):
+Increment funcțional instalabil pe Unraid (`0.1.3`):
 - API FastAPI
 - PostgreSQL + Alembic
 - configurare inițială administrator
@@ -14,6 +14,8 @@ Increment funcțional instalabil pe Unraid (`0.1.2`):
 - calcul TVA, pachete, fier beton, geometrie cameră/acoperiș
 - comparație furnizori după cost livrat
 - frontend Next.js în română
+- editor frontend complet pentru Proiect → Corp → Nivel → Capitol → Articol de deviz
+- creare, editare, ștergere și subtotaluri cantitative pe unități
 - worker separat
 - Docker / Unraid
 - CI + release GHCR

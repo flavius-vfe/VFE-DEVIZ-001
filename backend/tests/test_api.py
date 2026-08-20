@@ -106,3 +106,39 @@ def test_boq_hierarchy_rejects_cross_level_parent(authenticated_client):
         "code": "01.01", "name": "Invalid", "parent_section_id": parent["id"]
     })
     assert response.status_code == 422
+
+def test_boq_hierarchy_update_delete_and_validation(authenticated_client):
+    c = authenticated_client
+    project = c.post("/api/projects", json={"name": "CRUD BOQ"}).json()
+    building = c.post(f"/api/projects/{project['id']}/buildings", json={"name": "Corp A"}).json()
+    level = c.post(f"/api/buildings/{building['id']}/levels", json={"name": "Parter"}).json()
+    section = c.post(f"/api/levels/{level['id']}/sections", json={"code": "01", "name": "Fundații"}).json()
+    item = c.post(f"/api/sections/{section['id']}/items", json={
+        "code": "01.001", "description": "Beton", "unit": "m3", "quantity": "10",
+        "waste_percent": "5", "notes": "Turnare continuă"
+    }).json()
+
+    updated_building = c.put(f"/api/buildings/{building['id']}", json={"name": "Corp principal"})
+    assert updated_building.status_code == 200
+    updated_level = c.put(f"/api/levels/{level['id']}", json={"name": "Parter înalt", "elevation_m": "0.45"})
+    assert updated_level.status_code == 200
+    updated_section = c.put(f"/api/sections/{section['id']}", json={"code": "01A", "name": "Infrastructură"})
+    assert updated_section.status_code == 200
+    updated_item = c.put(f"/api/estimate-items/{item['id']}", json={
+        "code": "01A.001", "description": "Beton armat", "unit": "m3", "quantity": "12.5",
+        "waste_percent": "7", "notes": "Conform proiectului"
+    })
+    assert updated_item.status_code == 200
+    assert updated_item.json()["notes"] == "Conform proiectului"
+
+    invalid_unit = c.put(f"/api/estimate-items/{item['id']}", json={
+        "code": "x", "description": "x", "unit": "litru", "quantity": "1"
+    })
+    assert invalid_unit.status_code == 422
+
+    assert c.delete(f"/api/estimate-items/{item['id']}").status_code == 204
+    assert c.get(f"/api/sections/{section['id']}/items").json() == []
+    assert c.delete(f"/api/sections/{section['id']}").status_code == 204
+    assert c.delete(f"/api/levels/{level['id']}").status_code == 204
+    assert c.delete(f"/api/buildings/{building['id']}").status_code == 204
+    assert c.get(f"/api/projects/{project['id']}/buildings").json() == []

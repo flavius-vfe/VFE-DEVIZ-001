@@ -154,9 +154,9 @@ function Dashboard({projects,onRefresh,onError}:{projects:any[],onRefresh:()=>vo
     <div className="card">
       <h2>Proiecte</h2>
       {projects.length === 0 ? <p className="muted">Nu există proiecte.</p> :
-        projects.map(p => <div key={p.id} style={{padding:"10px 0",borderBottom:"1px solid #eee"}}>
-          <strong>{p.name}</strong><div className="muted">{p.locality}, {p.county}</div>
-        </div>)
+        projects.map(p => <a className="project-link" href={`/projects/${p.id}`} key={p.id}>
+          <strong>{p.name}</strong><span className="muted">{p.locality}, {p.county}</span><span>Deschide →</span>
+        </a>)
       }
     </div>
   </>;

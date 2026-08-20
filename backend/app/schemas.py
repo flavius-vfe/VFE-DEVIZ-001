@@ -1,5 +1,6 @@
 from __future__ import annotations
 from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 class SetupStatusOut(BaseModel):
@@ -70,7 +71,8 @@ class SectionOut(SectionIn):
 class EstimateItemIn(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     description: str = Field(min_length=1, max_length=255)
-    unit: str = Field(min_length=1, max_length=20)
+    notes: str | None = Field(default=None, max_length=2000)
+    unit: Literal["buc", "ml", "m2", "m3", "kg", "tona", "ora", "set"]
     quantity: Decimal = Field(gt=0)
     work_item_id: int | None = None
     calculation_type: str = Field(default="MANUAL", max_length=30)

@@ -120,6 +120,7 @@ class EstimateItem(Base):
     work_item_id: Mapped[int | None] = mapped_column(ForeignKey("work_items.id"))
     code: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18,6), nullable=False)
     calculation_type: Mapped[str] = mapped_column(String(30), default="MANUAL", nullable=False)

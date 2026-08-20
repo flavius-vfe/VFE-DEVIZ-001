@@ -62,9 +62,24 @@ curl --fail --silent --cookie-jar "$cookie_jar" --request POST \
   --data '{"username":"administrator","password":"Parola-Smoke-Sigura-123!"}' \
   http://127.0.0.1:8030/api/auth/login >/dev/null
 curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/auth/me | grep --quiet '"username":"administrator"'
-curl --fail --silent --cookie "$cookie_jar" --request POST \
+project_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST \
   --header 'Content-Type: application/json' \
   --data '{"name":"Proiect smoke Unraid","locality":"Ceahlău","county":"Neamț","default_waste_percent":"5"}' \
-  http://127.0.0.1:8030/api/projects | grep --quiet '"name":"Proiect smoke Unraid"'
+  http://127.0.0.1:8030/api/projects)
+printf '%s' "$project_json" | grep --quiet '"name":"Proiect smoke Unraid"'
+project_id=$(printf '%s' "$project_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+curl --fail --silent "http://127.0.0.1:3080/projects/$project_id" >/dev/null
+
+building_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"name":"Corp smoke"}' "http://127.0.0.1:8030/api/projects/$project_id/buildings")
+building_id=$(printf '%s' "$building_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+level_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"name":"Parter","elevation_m":"0"}' "http://127.0.0.1:8030/api/buildings/$building_id/levels")
+level_id=$(printf '%s' "$level_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+section_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"code":"01","name":"Fundații"}' "http://127.0.0.1:8030/api/levels/$level_id/sections")
+section_id=$(printf '%s' "$section_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+item_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"code":"01.001","description":"Beton smoke","unit":"m3","quantity":"10","waste_percent":"5","notes":"Integrare frontend/backend"}' "http://127.0.0.1:8030/api/sections/$section_id/items")
+item_id=$(printf '%s' "$item_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+curl --fail --silent --cookie "$cookie_jar" --request PUT --header 'Content-Type: application/json' --data '{"code":"01.001A","description":"Beton actualizat","unit":"m3","quantity":"12","waste_percent":"7","notes":"Actualizat"}' "http://127.0.0.1:8030/api/estimate-items/$item_id" | grep --quiet '"notes":"Actualizat"'
+curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$item_id" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/$section_id/items" | grep --quiet '^\[\]$'
 
 echo 'Smoke test instalare Unraid: OK'

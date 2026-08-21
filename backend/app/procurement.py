@@ -64,7 +64,7 @@ def basket(assignment,deliveries,include_unknown=False,package_overrides=None):
     known=all(x["landed_total_gross"] is not None for x in totals);total=money(sum((x["landed_total_gross"] or x["subtotal_gross"] for x in totals),D("0"))) if known or include_unknown else None
     return {"items":lines,"supplier_totals":totals,"landed_total_gross":total,"delivery_known":known}
 
-def optimize(candidates,deliveries,strategy="CHEAPEST_MIXED_SUPPLIERS",preferred_supplier_id=None,include_unknown=False,product_overrides=None,package_overrides=None,supplier_overrides=None):
+def optimize(candidates,deliveries,strategy="CHEAPEST_MIXED_SUPPLIERS",preferred_supplier_id=None,include_unknown=False,product_overrides=None,package_overrides=None,supplier_overrides=None,prefer_negotiated=False):
     product_overrides=product_overrides or {};supplier_overrides=supplier_overrides or {};eligible=[c for c in candidates if c.stock_status!="OUT_OF_STOCK"]
     grouped={};
     for c in eligible:grouped.setdefault(c.material_id,[]).append(c)
@@ -99,7 +99,7 @@ def optimize(candidates,deliveries,strategy="CHEAPEST_MIXED_SUPPLIERS",preferred
                 result=basket(chosen,deliveries,include_unknown,package_overrides)
                 total=result["landed_total_gross"]
                 if total is None:return
-                codes=tuple(c.supplier_code for c in chosen); key=(total,len(active),codes,tuple(c.product_id for c in chosen))
+                codes=tuple(c.supplier_code for c in chosen);negotiated_penalty=0 if prefer_negotiated and any(c.product_id<0 for c in chosen) else 1 if prefer_negotiated else 0;key=(total,negotiated_penalty,len(active),codes,tuple(c.product_id for c in chosen))
                 if best_key is None or key<best_key:best_cost,best_key,best_assignment=total,key,list(chosen)
                 return
             for candidate in options[index]:
@@ -114,7 +114,8 @@ def optimize(candidates,deliveries,strategy="CHEAPEST_MIXED_SUPPLIERS",preferred
         result=basket(list(a),deliveries,include_unknown,package_overrides)
         if result["landed_total_gross"] is not None:
             fresh=sum((int(c.checked_at.timestamp()) for c in a));codes=tuple(sorted({c.supplier_code for c in a}));preferred_penalty=0 if preferred_supplier_id in {c.supplier_id for c in a} else 1
-            results.append((result["landed_total_gross"],len(codes),-fresh,preferred_penalty,codes,result))
+            negotiated_penalty=0 if prefer_negotiated and any(c.product_id<0 for c in a) else 1 if prefer_negotiated else 0
+            results.append((result["landed_total_gross"],negotiated_penalty,len(codes),-fresh,preferred_penalty,codes,result))
     if not results:raise ValueError("Niciun coș complet nu are transport cunoscut.")
     answer=min(results,key=lambda x:x[:-1])[-1]
     if strategy=="CHEAPEST_MIXED_SUPPLIERS":answer["optimization_method"]="BRANCH_AND_BOUND"

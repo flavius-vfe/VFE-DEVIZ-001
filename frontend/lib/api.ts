@@ -12,13 +12,11 @@ export function apiBase(): string {
 }
 
 export async function api(path: string, options: RequestInit = {}) {
+  const isForm = options.body instanceof FormData;
   const response = await fetch(`${apiBase()}${path}`, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
+    headers: isForm ? (options.headers || {}) : {"Content-Type":"application/json",...(options.headers || {})}
   });
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => ({}));

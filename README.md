@@ -4,7 +4,7 @@ Aplicație locală, în limba română, pentru devize de construcții, liste de 
 costuri, achiziții și urmărirea execuției.
 
 ## Stadiu
-Increment funcțional instalabil pe Unraid (`0.1.9`):
+Increment funcțional instalabil pe Unraid (`0.2.0`):
 - API FastAPI
 - PostgreSQL + Alembic
 - configurare inițială administrator

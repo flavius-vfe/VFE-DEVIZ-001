@@ -39,11 +39,13 @@ export default function ProjectPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [addingBuilding, setAddingBuilding] = useState(false);
+  const [commercial, setCommercial] = useState<any>(null);
 
   const load = useCallback(async () => {
     setError("");
     try {
       const loadedProject = await api(`/api/projects/${projectId}`);
+      setCommercial(await api(`/api/projects/${projectId}/commercial-dashboard`));
       const rawBuildings = await api(`/api/projects/${projectId}/buildings`);
       const fullBuildings:Building[] = await Promise.all(rawBuildings.map(async (building:Building) => {
         const rawLevels = await api(`/api/buildings/${building.id}/levels`);
@@ -80,8 +82,9 @@ export default function ProjectPage() {
 
   return <main>
     <div className="breadcrumbs"><a href="/">Proiecte</a><span>/</span><strong>{project?.name || "Proiect"}</strong></div>
-    <header><div><h1>{project?.name || "Proiect indisponibil"}</h1>{project && <div className="muted">{project.locality}, {project.county}</div>}</div><div className="toolbar"><a href={`/projects/${projectId}/estimate`}>Deviz valoric</a><a href={`/projects/${projectId}/procurement`}>Compară furnizorii</a><a href={`/projects/${projectId}/shopping-list`}>Listă cumpărături</a><a href={`/projects/${projectId}/settings`}>Setări</a><a href={`/projects/${projectId}/geometry`}>Calcul geometric</a><a href="/">Înapoi la proiecte</a></div></header>
+    <header><div><h1>{project?.name || "Proiect indisponibil"}</h1>{project && <div className="muted">{project.locality}, {project.county}</div>}</div><nav className="toolbar"><a href={`/projects/${projectId}/estimate`}>Deviz</a><a href={`/projects/${projectId}/geometry`}>Geometrie</a><a href={`/projects/${projectId}/procurement`}>Aprovizionare</a><a href={`/projects/${projectId}/quotes`}>Oferte</a><a href={`/projects/${projectId}/orders`}>Comenzi</a><a href={`/projects/${projectId}/settings`}>Setări</a></nav></header>
     {error && <div className="card error" role="alert">{error} <button className="secondary" onClick={load}>Reîncearcă</button></div>}
+    {commercial&&<div className="results-grid"><div>Oferte active<strong>{commercial.active_quotes}</strong></div><div>Oferte care expiră<strong>{commercial.expiring_quotes}</strong></div><div>Comenzi draft<strong>{commercial.draft_orders}</strong></div><div>Comenzi de plasat<strong>{commercial.ready_orders}</strong></div><div>Comenzi plasate<strong>{commercial.ordered}</strong></div></div>}
     {project && <>
       <Subtotal items={projectItems} label="Total proiect, cu pierderi" />
       <div className="toolbar push"><h2>Structură deviz</h2><button className="primary" disabled={busy} onClick={() => setAddingBuilding(true)}>Adaugă corp</button></div>

@@ -40,8 +40,9 @@ from .catalogue import seed_catalogue, export_catalogue
 from .suppliers import adapter_for, import_product, match_score, package_purchase
 from .suppliers.seed import seed_suppliers
 from .suppliers.security import validate_supplier_url
+from .procurement_api import router as procurement_router
 
-app = FastAPI(title="VFE Deviz API", version="0.1.7")
+app = FastAPI(title="VFE Deviz API", version="0.1.8")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -58,10 +59,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(procurement_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.7"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.8"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -272,7 +274,9 @@ def compare_material_products(material_id:int,required_quantity:Decimal,db:Sessi
 @app.post("/api/projects/{project_id}/delivery-quotes",status_code=201)
 def create_delivery_quote(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
     project=require_entity(db,Project,project_id,"Proiectul nu există.");supplier=require_entity(db,Supplier,int(payload["supplier_id"]),"Furnizorul nu există.")
-    quote=DeliveryQuote(project_id=project.id,supplier_id=supplier.id,supplier_location_id=payload.get("supplier_location_id"),destination_locality=payload.get("destination_locality") or project.locality or "Ceahlău",destination_county=payload.get("destination_county") or project.county or "Neamț",cost_gross=payload.get("cost_gross"),source="MANUAL",checked_at=datetime.now(timezone.utc),notes=payload.get("notes"));db.add(quote);db.commit();db.refresh(quote);return {"id":quote.id,"cost_gross":quote.cost_gross,"source":quote.source}
+    cost=Decimal(str(payload.get("cost_gross"))) if payload.get("cost_gross") is not None else None
+    if cost is not None and cost<0:raise HTTPException(422,"Transportul nu poate fi negativ.")
+    quote=DeliveryQuote(project_id=project.id,supplier_id=supplier.id,supplier_location_id=payload.get("supplier_location_id"),destination_address=project.delivery_address,destination_locality=payload.get("destination_locality") or project.delivery_locality,destination_county=payload.get("destination_county") or project.delivery_county,basket_subtotal_gross=payload.get("basket_subtotal_gross",0),delivery_cost_gross=cost,source="MANUAL",valid_from=datetime.now(timezone.utc),checked_at=datetime.now(timezone.utc),notes=payload.get("notes"),active=True);db.add(quote);db.commit();db.refresh(quote);return {"id":quote.id,"cost_gross":quote.delivery_cost_gross,"source":quote.source}
 
 @app.post("/api/projects/{project_id}/estimate/snapshot",status_code=201)
 def snapshot_estimate(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):

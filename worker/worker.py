@@ -14,7 +14,7 @@ def allowed(url,code):
     for x in socket.getaddrinfo(host,443,type=socket.SOCK_STREAM):
         if not ipaddress.ip_address(x[4][0]).is_global: raise ValueError("Țintă SSRF blocată")
 def fetch_price(url,code,timeout):
-    allowed(url,code); req=Request(url,headers={"User-Agent":"VFE-Deviz/0.1.7 supplier refresh","Accept":"text/html"})
+    allowed(url,code); req=Request(url,headers={"User-Agent":"VFE-Deviz/0.1.8 supplier refresh","Accept":"text/html"})
     with build_opener(NoRedirect).open(req,timeout=timeout) as r: body=r.read(2_000_001)
     if len(body)>2_000_000: raise ValueError("Răspuns prea mare")
     html=body.decode("utf-8","replace"); patterns=[r'"price"\s*:\s*"?([0-9.,]+)',r'product:price:amount[^>]+content="([0-9.,]+)']

@@ -13,7 +13,7 @@ from .models import (
     SystemSetting, User, UserSession, Project, Building, Level,
     EstimateSection, EstimateItem, WorkItem, Material, LaborResource, EquipmentResource,
     OtherResource, WorkRecipe, RecipeResource, ProjectResourcePrice, EstimateResourceLine,
-    GeometryCalculation, GeometryEstimateLink, MeshCatalogueItem,
+    GeometryCalculation, GeometryEstimateLink, MeshCatalogueItem, WorkCategory,
 )
 from .schemas import (
     SetupStatusOut, SetupIn, LoginIn, UserOut,
@@ -22,7 +22,7 @@ from .schemas import (
     VatCalcIn, PackageCalcIn, RoomCalcIn, SteelCalcIn, MaterialIn, MaterialOut,
     PricedResourceIn, PricedResourceOut, WorkItemIn, WorkItemOut, RecipeIn, RecipeOut,
     RecipeResourceIn, RecipeResourceOut, ProjectPriceIn, ProjectPriceOut, ManualResourceLineIn,
-    GeometryCalculationIn, GeometryLinkIn, GeometryCreateItemIn, MeshCatalogueIn,
+    GeometryCalculationIn, GeometryLinkIn, GeometryCreateItemIn, MeshCatalogueIn, CatalogueItemIn, CatalogueImportIn,
 )
 from .security import (
     hash_password, verify_password, new_session_token, hash_session_token, session_expiry
@@ -34,8 +34,9 @@ from .calc import (
 )
 from .estimation import calculate_cost, gross_from_net_exact, recipe_quantity, aggregate_totals
 from .geometry import calculate as calculate_geometry, UNITS as GEOMETRY_UNITS, with_waste as geometry_with_waste
+from .catalogue import seed_catalogue, export_catalogue
 
-app = FastAPI(title="VFE Deviz API", version="0.1.5")
+app = FastAPI(title="VFE Deviz API", version="0.1.6")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -55,7 +56,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.5"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.6"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -88,6 +89,7 @@ def setup(payload: SetupIn, db: Session = Depends(get_db)):
     for key, value in settings_to_save.items():
         db.merge(SystemSetting(key=key, value=value))
     db.commit()
+    seed_catalogue(db)
     db.refresh(user)
     return user
 
@@ -531,8 +533,9 @@ def resolve_recipe(db: Session, work_item_id: int, project_id: int):
 def generate_recipe_resources(item_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
     item = require_entity(db, EstimateItem, item_id, "Articolul de deviz nu există.")
     if item.work_item_id is None: raise HTTPException(status_code=422, detail="Articolul nu are o lucrare asociată.")
-    project_id = project_for_item(db, item_id); recipe = resolve_recipe(db, item.work_item_id, project_id)
+    project_id = project_for_item(db, item_id); recipe = db.get(WorkRecipe,item.pinned_recipe_id) if item.pinned_recipe_id else resolve_recipe(db, item.work_item_id, project_id)
     if recipe is None: raise HTTPException(status_code=404, detail="Nu există rețetă aplicabilă.")
+    if item.pinned_recipe_id is None: item.pinned_recipe_id=recipe.id
     db.execute(delete(EstimateResourceLine).where(EstimateResourceLine.estimate_item_id == item_id, EstimateResourceLine.source == "RECIPE"))
     for recipe_line in db.scalars(select(RecipeResource).where(RecipeResource.recipe_id == recipe.id)):
         net, vat = effective_price(db, project_id, recipe_line.resource_type, recipe_line.resource_id)
@@ -639,3 +642,53 @@ def list_mesh(db: Session = Depends(get_db), _: User = Depends(current_user)): r
 @app.post("/api/catalog/mesh", status_code=201)
 def create_mesh(payload: MeshCatalogueIn, db: Session = Depends(get_db), _: User = Depends(current_user)):
     values=payload.model_dump(); values["sheet_area_m2"]=payload.sheet_length_m*payload.sheet_width_m; row=MeshCatalogueItem(**values); db.add(row); commit_or_conflict(db,"Codul plasei există deja."); db.refresh(row); return row
+
+@app.get("/api/catalog/categories")
+def list_categories(db:Session=Depends(get_db),_:User=Depends(current_user)): return list(db.scalars(select(WorkCategory).order_by(WorkCategory.sort_order)))
+
+@app.post("/api/catalog/admin/reload")
+def reload_standard_catalogue(db:Session=Depends(get_db),_:User=Depends(current_user)): return seed_catalogue(db)
+
+@app.post("/api/catalog/admin/reset-standard")
+def reset_standard_catalogue(db:Session=Depends(get_db),_:User=Depends(current_user)):
+    for model in (Material,LaborResource):
+        for row in db.scalars(select(model).where(model.code.like("STD-%"))): row.active=False
+    for row in db.scalars(select(WorkItem).where(WorkItem.description.like("Coeficienții rețetei sunt estimări inițiale%"))): row.active=False
+    db.commit(); return seed_catalogue(db)
+
+@app.get("/api/catalog/admin/export")
+def catalogue_export(db:Session=Depends(get_db),_:User=Depends(current_user)): return export_catalogue(db)
+
+@app.post("/api/catalog/admin/import")
+def catalogue_import(payload:CatalogueImportIn,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    if payload.schema_version!="1": raise HTTPException(status_code=422,detail="Versiunea schemei catalogului nu este acceptată.")
+    for data in payload.categories:
+        row=db.scalar(select(WorkCategory).where(WorkCategory.code==data["code"])) or WorkCategory(code=data["code"]); row.name=data["name"]; row.sort_order=data.get("sort_order",0); db.add(row)
+    resource_map={}
+    for data in payload.resources.get("materials",[]):
+        row=db.scalar(select(Material).where(Material.code==data["code"])) or Material(code=data["code"]); row.name=data["name"]; row.category=data["category"]; row.base_unit=data["unit"]; row.attributes={"source":"IMPORT"}; row.active=data.get("active",True); db.add(row)
+        db.flush(); resource_map[("MATERIAL",data.get("id"))]=row.id
+    for data in payload.resources.get("labor",[]):
+        row=db.scalar(select(LaborResource).where(LaborResource.code==data["code"])) or LaborResource(code=data["code"]); row.name=data["name"]; row.unit=data["unit"]; row.rate_net=Decimal(data["rate_net"]); row.vat_rate=Decimal(data.get("vat_rate","21")); row.rate_gross=gross_from_net_exact(row.rate_net,row.vat_rate); row.active=data.get("active",True); db.add(row)
+        db.flush(); resource_map[("LABOR",data.get("id"))]=row.id
+    work_map={}
+    for data in payload.works:
+        row=db.scalar(select(WorkItem).where(WorkItem.code==data["code"])) or WorkItem(code=data["code"]); row.name=data["name"]; row.category=data["category"]; row.unit=data["unit"]; row.description=data.get("description"); row.active=data.get("active",True); db.add(row)
+        db.flush(); work_map[data.get("id")]=row.id
+    for data in payload.recipes:
+        work_id=work_map.get(data["work_item_id"]); recipe=db.scalar(select(WorkRecipe).where(WorkRecipe.work_item_id==work_id,WorkRecipe.version==data["version"]))
+        if recipe is None: recipe=WorkRecipe(work_item_id=work_id,scope=data["scope"],project_id=data.get("project_id"),version=data["version"]);db.add(recipe);db.flush()
+        if db.scalar(select(RecipeResource.id).where(RecipeResource.recipe_id==recipe.id).limit(1)) is None:
+            for line in data.get("resources",[]): db.add(RecipeResource(recipe_id=recipe.id,resource_type=line["resource_type"],resource_id=resource_map.get((line["resource_type"],line.get("resource_id")),line.get("resource_id")),description=line["description"],unit=line["unit"],quantity_per_unit=Decimal(line["quantity_per_unit"]),waste_percent=Decimal(line["waste_percent"])))
+    db.commit(); return {"status":"importat","categories":len(payload.categories),"works":len(payload.works),"recipes":len(payload.recipes)}
+
+@app.post("/api/sections/{section_id}/items/from-catalog",response_model=EstimateItemOut,status_code=201)
+def create_item_from_catalog(section_id:int,payload:CatalogueItemIn,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    require_entity(db,EstimateSection,section_id,"Capitolul nu există."); work=require_entity(db,WorkItem,payload.work_item_id,"Lucrarea nu există."); project_id=db.scalar(select(Building.project_id).join(Level).join(EstimateSection).where(EstimateSection.id==section_id)); recipe=resolve_recipe(db,work.id,project_id)
+    item=EstimateItem(section_id=section_id,work_item_id=work.id,pinned_recipe_id=recipe.id if recipe else None,code=payload.code,description=work.name,unit=work.unit,quantity=payload.quantity,waste_percent=payload.waste_percent,calculation_type="CATALOG",calculation_inputs={"recipe_version":recipe.version if recipe else None}); db.add(item); db.flush()
+    if recipe: generate_recipe_resources(item.id,db,None)
+    db.commit(); db.refresh(item); return item
+
+@app.delete("/api/recipe-resources/{resource_id}",status_code=204)
+def delete_recipe_resource(resource_id:int,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    row=require_entity(db,RecipeResource,resource_id,"Resursa rețetei nu există."); db.delete(row); db.commit(); return Response(status_code=204)

@@ -1,6 +1,6 @@
 [project]
 name = "vfe-deviz-worker"
-version = "0.1.5"
+version = "0.1.6"
 requires-python = ">=3.12"
 dependencies = [
   "SQLAlchemy==2.0.51",

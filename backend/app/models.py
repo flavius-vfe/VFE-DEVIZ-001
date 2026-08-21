@@ -117,6 +117,13 @@ class OtherResource(Base):
     rate_gross: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+class WorkCategory(Base):
+    __tablename__ = "work_categories"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
 class WorkItem(Base):
     __tablename__ = "work_items"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -155,6 +162,7 @@ class EstimateItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     section_id: Mapped[int] = mapped_column(ForeignKey("estimate_sections.id", ondelete="CASCADE"), nullable=False)
     work_item_id: Mapped[int | None] = mapped_column(ForeignKey("work_items.id"))
+    pinned_recipe_id: Mapped[int | None] = mapped_column(ForeignKey("work_recipes.id", ondelete="SET NULL"))
     code: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)

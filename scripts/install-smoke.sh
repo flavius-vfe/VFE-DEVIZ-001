@@ -62,6 +62,8 @@ curl --fail --silent --cookie-jar "$cookie_jar" --request POST \
   --data '{"username":"administrator","password":"Parola-Smoke-Sigura-123!"}' \
   http://127.0.0.1:8030/api/auth/login >/dev/null
 curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/auth/me | grep --quiet '"username":"administrator"'
+curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/catalog/categories | python3 -c 'import json,sys; assert len(json.load(sys.stdin))==20'
+curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/catalog/work-items | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert len(rows)>=51; assert any(x["name"]=="Zidărie BCA 25 cm" for x in rows)'
 project_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST \
   --header 'Content-Type: application/json' \
   --data '{"name":"Proiect smoke Unraid","locality":"Ceahlău","county":"Neamț","default_waste_percent":"5"}' \
@@ -80,7 +82,7 @@ item_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 
 item_id=$(printf '%s' "$item_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 curl --fail --silent --cookie "$cookie_jar" --request PUT --header 'Content-Type: application/json' --data '{"code":"01.001A","description":"Beton actualizat","unit":"m3","quantity":"12","waste_percent":"7","notes":"Actualizat"}' "http://127.0.0.1:8030/api/estimate-items/$item_id" | grep --quiet '"notes":"Actualizat"'
 
-for route in catalog/materiale catalog/manopera catalog/utilaje catalog/lucrari "projects/$project_id/estimate"; do
+for route in catalog/materiale catalog/manopera catalog/utilaje catalog/lucrari settings/catalog "projects/$project_id/estimate"; do
   curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null
 done
 
@@ -96,13 +98,18 @@ curl --fail --silent --cookie "$cookie_jar" --request POST "http://127.0.0.1:803
 curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"resource_type":"OTHER","description":"Protecții smoke","unit":"set","quantity":"2","waste_percent":"5","unit_price_net":"10","vat_rate":"21"}' "http://127.0.0.1:8030/api/estimate-items/$item_id/resources" | grep --quiet '"source":"MANUAL"'
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/estimate-totals" | grep --quiet '"total_gross"'
 
-geometry_item_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"code\":\"GEO-01\",\"description\":\"Pereți cameră smoke\",\"unit\":\"m2\",\"quantity\":\"1\",\"work_item_id\":$work_id}" "http://127.0.0.1:8030/api/sections/$section_id/items")
+catalogue_work_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/catalog/work-items | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["name"]=="Zidărie BCA 25 cm"))')
+geometry_item_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"work_item_id\":$catalogue_work_id,\"code\":\"GEO-01\",\"quantity\":\"1\",\"waste_percent\":\"0\"}" "http://127.0.0.1:8030/api/sections/$section_id/items/from-catalog")
 geometry_item_id=$(printf '%s' "$geometry_item_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 geometry_json=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"estimate_item_id\":$geometry_item_id,\"geometry_type\":\"ROOM\",\"name\":\"Camera smoke\",\"input_data\":{\"length_m\":\"5\",\"width_m\":\"4\",\"height_m\":\"2.8\",\"openings\":[]},\"selected_result\":\"net_wall_area_m2\",\"waste_percent\":\"5\"}" "http://127.0.0.1:8030/api/projects/$project_id/geometry")
 printf '%s' "$geometry_json" | grep --quiet '"geometry_type":"ROOM"'
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/$section_id/items" | python3 -c 'import json,sys,decimal; rows=json.load(sys.stdin); row=next(x for x in rows if x["code"]=="GEO-01"); assert decimal.Decimal(str(row["quantity"]))==decimal.Decimal("52.92")'
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/estimate-items/$geometry_item_id/resources" | grep --quiet '"source":"RECIPE"'
 curl --fail --silent "http://127.0.0.1:3080/projects/$project_id/geometry" >/dev/null
+docker compose restart backend >/dev/null
+for attempt in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8030/ready >/dev/null && break; sleep 2; done
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/geometry" | grep --quiet '"name":"Camera smoke"'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/estimate-items/$geometry_item_id/resources" | grep --quiet 'BCA 25 cm'
 
 curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$item_id" >/dev/null
 curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$geometry_item_id" >/dev/null

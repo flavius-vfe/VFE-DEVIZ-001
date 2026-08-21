@@ -32,6 +32,7 @@ jobs:
           node-version: "22"
       - run: npm install
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build
       - name: Build frontend container
         run: docker build --tag vfe-deviz-frontend:ci .

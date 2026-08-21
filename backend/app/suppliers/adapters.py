@@ -60,7 +60,7 @@ class SupplierAdapter(ABC):
     def discover_urls(self): return []
     def fetch_product(self, url: str) -> str:
         validate_supplier_url(url, self.code)
-        req=Request(url, headers={"User-Agent":"VFE-Deviz/0.1.7 (+manual supplier price verification)","Accept":"text/html"})
+        req=Request(url, headers={"User-Agent":"VFE-Deviz/0.1.8 (+manual supplier price verification)","Accept":"text/html"})
         with build_opener(NoRedirect).open(req, timeout=15) as response: return bounded_body(response.read(2_000_001))
     @abstractmethod
     def parse_product(self, html: str, url: str=""): ...
@@ -84,7 +84,7 @@ class DedemanAdapter(SupplierAdapter):
     def discover_urls(self):
         # Descoperire conservatoare: numai URL-uri publice din sitemap și categorii de construcții.
         validate_supplier_url(self.sitemap_url,self.code)
-        req=Request(self.sitemap_url,headers={"User-Agent":"VFE-Deviz/0.1.7 sitemap discovery"})
+        req=Request(self.sitemap_url,headers={"User-Agent":"VFE-Deviz/0.1.8 sitemap discovery"})
         with build_opener(NoRedirect).open(req,timeout=15) as response: xml=bounded_body(response.read(2_000_001))
         terms=("bca","ciment","adeziv","caramida","beton","izol","gips","mortar","otel","plasa")
         return [clean(x) for x in re.findall(r"<loc>(.*?)</loc>",xml,re.I) if any(t in x.lower() for t in terms)][:500]

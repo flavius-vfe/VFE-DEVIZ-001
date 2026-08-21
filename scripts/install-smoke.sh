@@ -134,4 +134,24 @@ for route in suppliers suppliers/dedeman suppliers/mathaus "catalog/materiale/$m
   curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null
 done
 
+procurement_item=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"code":"ACH-01","description":"Material aprovizionare","unit":"kg","quantity":"100","waste_percent":"0"}' "http://127.0.0.1:8030/api/sections/$section_id/items")
+procurement_item_id=$(printf '%s' "$procurement_item" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"resource_type\":\"MATERIAL\",\"resource_id\":$material_id,\"description\":\"Adeziv generic\",\"unit\":\"kg\",\"quantity\":\"100\",\"waste_percent\":\"0\",\"unit_price_net\":\"35\",\"vat_rate\":\"21\"}" "http://127.0.0.1:8030/api/estimate-items/$procurement_item_id/resources" >/dev/null
+dedeman_supplier_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/suppliers | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["code"]=="DEDEMAN"))')
+mathaus_supplier_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/suppliers | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["code"]=="MATHAUS"))')
+for pair in "$dedeman_supplier_id:650" "$mathaus_supplier_id:850"; do
+  sid=${pair%%:*}; cost=${pair##*:}
+  curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"supplier_id\":$sid,\"delivery_cost_gross\":\"$cost\"}" "http://127.0.0.1:8030/api/projects/$project_id/delivery-quotes/manual" >/dev/null
+done
+single_plan=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"strategy":"CHEAPEST_SINGLE_SUPPLIER"}' "http://127.0.0.1:8030/api/projects/$project_id/procurement/calculate")
+printf '%s' "$single_plan" | grep --quiet '"status":"CALCULATED"'
+mixed_plan=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"strategy":"CHEAPEST_MIXED_SUPPLIERS"}' "http://127.0.0.1:8030/api/projects/$project_id/procurement/calculate")
+mixed_plan_id=$(printf '%s' "$mixed_plan" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+curl --fail --silent --cookie "$cookie_jar" --request POST "http://127.0.0.1:8030/api/projects/$project_id/procurement/plans/$mixed_plan_id/lock" | grep --quiet '"status":"LOCKED"'
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"dedeman_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture >/dev/null
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/procurement/plans/$mixed_plan_id" | grep --quiet '"status":"LOCKED"'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/procurement/plans/$mixed_plan_id/export.pdf" | grep --binary-files=text --quiet '%PDF-1.4'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/procurement/plans/$mixed_plan_id/export.xlsx" >/dev/null
+for route in "projects/$project_id/procurement" "projects/$project_id/shopping-list" "projects/$project_id/settings"; do curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null; done
+
 echo 'Smoke test instalare Unraid: OK'

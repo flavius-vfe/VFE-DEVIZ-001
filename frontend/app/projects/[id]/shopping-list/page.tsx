@@ -1,0 +1,1 @@
+import ProcurementClient from "../procurement/procurement-client";export default async function Page({params}:{params:Promise<{id:string}>}){const{id}=await params;return <><ProcurementClient projectId={Number(id)} shoppingOnly/><aside className="card">✓ Preț actualizat în ultimele 72 ore · ⚠ Preț vechi · ✕ Preț indisponibil</aside></>}

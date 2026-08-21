@@ -31,11 +31,16 @@ class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     client: str | None = None
     delivery_address: str | None = None
+    delivery_locality: str = "Ceahlău"
+    delivery_county: str = "Neamț"
+    delivery_country: str = "România"
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
     locality: str = "Ceahlău"
     county: str = "Neamț"
     postal_code: str | None = None
     default_waste_percent: Decimal = Field(default=Decimal("5"), ge=0, le=100)
-    material_price_strategy: Literal["MANUAL", "CHEAPEST_PRODUCT_PRICE", "PREFERRED_SUPPLIER"] = "MANUAL"
+    material_price_strategy: Literal["MANUAL", "PREFERRED_SUPPLIER", "CHEAPEST_SINGLE_SUPPLIER", "CHEAPEST_MIXED_SUPPLIERS"] = "MANUAL"
 
 class ProjectOut(ProjectIn):
     id: int

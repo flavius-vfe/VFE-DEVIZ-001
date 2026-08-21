@@ -9,6 +9,7 @@ class Settings:
     frontend_port: int = int(os.getenv("FRONTEND_PORT", "3080"))
     backend_port: int = int(os.getenv("BACKEND_PORT", "8030"))
     session_days: int = int(os.getenv("SESSION_DAYS", "7"))
+    price_freshness_hours: int = int(os.getenv("PRICE_FRESHNESS_HOURS", "72"))
     data_root: str = os.getenv("DATA_ROOT", "/data")
 
 settings = Settings()

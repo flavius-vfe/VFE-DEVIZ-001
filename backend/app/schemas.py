@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
-Unit = Literal["buc", "ml", "m2", "m3", "kg", "tona", "ora", "set", "sac", "palet"]
+Unit = Literal["buc", "ml", "m2", "m3", "kg", "tona", "ora", "set", "sac", "palet", "l"]
 ResourceType = Literal["MATERIAL", "LABOR", "EQUIPMENT", "OTHER"]
 
 class SetupStatusOut(BaseModel):
@@ -86,6 +86,7 @@ class EstimateItemIn(BaseModel):
 class EstimateItemOut(EstimateItemIn):
     id: int
     section_id: int
+    pinned_recipe_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class VatCalcIn(BaseModel):
@@ -231,3 +232,17 @@ class MeshCatalogueIn(BaseModel):
     sheet_width_m: Decimal = Field(gt=0)
     weight_kg_per_sheet: Decimal = Field(gt=0)
     active: bool = True
+
+class CatalogueItemIn(BaseModel):
+    work_item_id: int
+    code: str = Field(min_length=1,max_length=80)
+    quantity: Decimal = Field(gt=0)
+    waste_percent: Decimal = Field(default=Decimal("0"),ge=0,le=100)
+
+class CatalogueImportIn(BaseModel):
+    schema_version: str
+    catalogue_version: str
+    categories: list[dict] = []
+    resources: dict = {}
+    works: list[dict] = []
+    recipes: list[dict] = []

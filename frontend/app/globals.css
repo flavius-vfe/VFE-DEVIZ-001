@@ -57,8 +57,11 @@ th { font-size:.85rem; color:#59636e; }
 .inline-form { display:flex; align-items:center; gap:8px; margin:8px 0; }
 .inline-form input { max-width:130px; }
 details { margin:14px 0; }
+.catalog-layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:16px; }
+.catalog-layout aside button { display:block; width:100%; margin-bottom:6px; text-align:left; }
 @media (max-width:760px) {
   main { padding:16px; }
   .project-link, .item-row { grid-template-columns:1fr; }
   .form-grid { grid-template-columns:1fr; }
+  .catalog-layout { grid-template-columns:1fr; }
 }

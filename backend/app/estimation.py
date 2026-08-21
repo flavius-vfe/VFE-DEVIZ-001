@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
 D = Decimal
-UNITS = ("buc", "ml", "m2", "m3", "kg", "tona", "ora", "set", "sac", "palet")
+UNITS = ("buc", "ml", "m2", "m3", "kg", "tona", "ora", "set", "sac", "palet", "l")
 RESOURCE_TYPES = ("MATERIAL", "LABOR", "EQUIPMENT", "OTHER")
 
 def dec(value) -> Decimal:

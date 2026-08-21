@@ -3,6 +3,7 @@ WORKDIR /app
 
 COPY pyproject.toml .
 COPY app ./app
+COPY seeds ./seeds
 RUN pip install --no-cache-dir .
 
 COPY alembic.ini .

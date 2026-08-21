@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vfe-deviz-frontend</Name>
-  <Repository>ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.5</Repository>
+  <Repository>ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.6</Repository>
   <Registry>https://github.com/flavius-vfe/VFE-DEVIZ-001/pkgs/container/vfe-deviz-frontend</Registry>
   <Network>vfe-deviz</Network>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>

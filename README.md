@@ -4,7 +4,7 @@ Aplicație locală, în limba română, pentru devize de construcții, liste de 
 costuri, achiziții și urmărirea execuției.
 
 ## Stadiu
-Increment funcțional instalabil pe Unraid (`0.1.5`):
+Increment funcțional instalabil pe Unraid (`0.1.6`):
 - API FastAPI
 - PostgreSQL + Alembic
 - configurare inițială administrator
@@ -23,6 +23,8 @@ Increment funcțional instalabil pe Unraid (`0.1.5`):
 - modele de versiuni și snapshot-uri pentru păstrarea calculelor istorice
 - motor geometric Decimal pentru încăperi, structură, armături, plasă sudată și acoperiș în două ape
 - sincronizare automată geometrie → cantitate articol → resurse rețetă → total deviz
+- catalog standard românesc versionat: 20 categorii, lucrări, materiale generice și manoperă
+- rețete standard editabile, override-uri, versiuni fixate în deviz și import/export JSON
 - worker separat
 - Docker / Unraid
 - CI + release GHCR

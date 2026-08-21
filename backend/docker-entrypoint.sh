@@ -13,4 +13,6 @@ until alembic upgrade head; do
   sleep "${MIGRATION_RETRY_SECONDS:-5}"
 done
 
+python -m app.seed
+
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

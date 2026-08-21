@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select, func
 from app.models import Material, Supplier, SupplierProduct, PriceObservation, EstimateVersion, EstimateSnapshotLine
-from app.suppliers.adapters import DedemanAdapter, MathausAdapter, decimal_ro, stock
+from app.suppliers.adapters import DedemanAdapter, MathausAdapter, LeroyMerlinAdapter, HornbachAdapter, decimal_ro, stock, packaging
 from app.suppliers.security import validate_supplier_url, bounded_body
 from app.suppliers.service import import_product, match_score, package_purchase, retry_delay
 from app.suppliers.seed import seed_suppliers
@@ -17,11 +17,21 @@ def read(name):return (FIX/name).read_text(encoding="utf-8")
  ("dedeman_bca.html",DedemanAdapter(),"DED-BCA25",Decimal("21.50"),None,"UNKNOWN"),
  ("mathaus_adeziv.html",MathausAdapter(),"MAT-98765",Decimal("41.49"),"kg","IN_STOCK"),
  ("mathaus_bca.html",MathausAdapter(),"MAT-BCA25",Decimal("20.60"),"buc","LIMITED"),
+ ("leroy_adeziv.html",LeroyMerlinAdapter(),"LM-10025",Decimal("62.90"),"kg","UNKNOWN"),
+ ("leroy_bca.html",LeroyMerlinAdapter(),"LM-BCA375",Decimal("18.75"),"m3","UNKNOWN"),
+ ("hornbach_adeziv.html",HornbachAdapter(),"HB-884201",Decimal("54.50"),"kg","IN_STOCK"),
+ ("hornbach_bca.html",HornbachAdapter(),"HB-105599",Decimal("20.20"),"m3","LIMITED"),
 ])
 def test_offline_product_parsers(name,adapter,sku,gross,unit,status):
-    p=adapter.parse_product(read(name),f"https://{'www.dedeman.ro' if isinstance(adapter,DedemanAdapter) else 'mathaus.ro'}/{sku}")
+    hosts={DedemanAdapter:"www.dedeman.ro",MathausAdapter:"mathaus.ro",LeroyMerlinAdapter:"www.leroymerlin.ro",HornbachAdapter:"www.hornbach.ro"}
+    p=adapter.parse_product(read(name),f"https://{hosts[type(adapter)]}/{sku}")
     assert p.sku==sku and p.gross==gross and p.package_unit==unit and p.stock_status==status
     assert p.name and p.url and p.vat_rate==Decimal("21")
+    if isinstance(adapter,(LeroyMerlinAdapter,HornbachAdapter)): assert all(set(x)>={"field","source","success"} for x in p.diagnostics)
+
+@pytest.mark.parametrize("text,q,u",[("25 kg",Decimal("25"),"kg"),("5 m²/pachet",Decimal("5"),"m2"),("48 buc/palet",Decimal("48"),"buc"),("0,0375 m³/buc",Decimal("0.0375"),"m3")])
+def test_retail_packaging_normalization(text,q,u):
+    quantity,normalized,attributes=packaging(text);assert (quantity,normalized)==(q,u) and attributes["ambalaj_original"]
 
 def test_romanian_price_vat_stock_and_pallet():
     assert decimal_ro("1.234,56 lei")==Decimal("1234.56")
@@ -31,6 +41,8 @@ def test_romanian_price_vat_stock_and_pallet():
 
 def test_security_domain_allowlist_ssrf_and_size(monkeypatch):
     assert validate_supplier_url("https://www.dedeman.ro/produs", "DEDEMAN",resolve=False)
+    assert validate_supplier_url("https://www.leroymerlin.ro/produs", "LEROY_MERLIN",resolve=False)
+    assert validate_supplier_url("https://www.hornbach.ro/produs", "HORNBACH",resolve=False)
     for url in ("http://www.dedeman.ro/produs","https://localhost/produs","https://mathaus.ro/produs","https://127.0.0.1/produs"):
         with pytest.raises(ValueError):validate_supplier_url(url,"DEDEMAN",resolve=False)
     with pytest.raises(ValueError):bounded_body(b"x"*2_000_001)
@@ -63,7 +75,7 @@ def test_snapshot_is_immutable_after_new_price(db):
 
 def test_supplier_fixture_api_and_manual_approval(authenticated_client):
     c=authenticated_client
-    suppliers=c.get("/api/suppliers");assert suppliers.status_code==200 and len(suppliers.json())==2
+    suppliers=c.get("/api/suppliers");assert suppliers.status_code==200 and len(suppliers.json())==4
     p1=c.post("/api/suppliers/import-fixture",json={"fixture":"dedeman_adeziv.html"});p2=c.post("/api/suppliers/import-fixture",json={"fixture":"mathaus_adeziv.html"});assert p1.status_code==p2.status_code==201
     material=c.get("/api/catalog/materials").json()[0]
     candidates=c.get(f"/api/catalog/materials/{material['id']}/products").json();assert len(candidates)==2

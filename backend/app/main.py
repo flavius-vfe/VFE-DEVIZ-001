@@ -42,7 +42,7 @@ from .suppliers.seed import seed_suppliers
 from .suppliers.security import validate_supplier_url
 from .procurement_api import router as procurement_router
 
-app = FastAPI(title="VFE Deviz API", version="0.1.8")
+app = FastAPI(title="VFE Deviz API", version="0.1.9")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -63,7 +63,7 @@ app.include_router(procurement_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.8"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.9"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -187,9 +187,15 @@ def require_entity(db: Session, model, entity_id: int, detail: str):
 
 def supplier_dict(db: Session, supplier: Supplier):
     locations=list(db.scalars(select(SupplierLocation).where(SupplierLocation.supplier_id==supplier.id)))
+    products_tracked=db.scalar(select(func.count(SupplierProduct.id)).where(SupplierProduct.supplier_id==supplier.id)) or 0
+    price_observations=db.scalar(select(func.count(PriceObservation.id)).join(SupplierProduct).where(SupplierProduct.supplier_id==supplier.id)) or 0
+    if supplier.successes: status="DEGRADED" if supplier.last_error else "HEALTHY"
+    elif supplier.failures or supplier.parse_failures: status="FAILED"
+    else: status="UNKNOWN"
     return {"id":supplier.id,"code":supplier.code,"name":supplier.name,"website":supplier.website,"active":supplier.active,
-      "status":"FUNCTIONAL" if supplier.last_error is None else "DEGRADED","requests":supplier.requests,"successes":supplier.successes,
+      "status":status,"requests":supplier.requests,"successes":supplier.successes,
       "failures":supplier.failures,"parse_failures":supplier.parse_failures,"last_success":supplier.last_success,"last_error":supplier.last_error,
+      "products_tracked":products_tracked,"price_observations":price_observations,"manual_imports":supplier.manual_imports,
       "locations":[{"id":x.id,"code":x.code,"name":x.name,"address":x.address,"locality":x.locality,"county":x.county,"active":x.active} for x in locations]}
 
 @app.get("/api/suppliers")
@@ -204,8 +210,10 @@ def get_supplier(code:str,db:Session=Depends(get_db),_:User=Depends(current_user
     result["products"]=[product_dict(db,x) for x in products]; return result
 
 def product_dict(db, product):
-    observation=db.scalar(select(PriceObservation).where(PriceObservation.supplier_product_id==product.id,PriceObservation.success.is_(True)).order_by(PriceObservation.checked_at.desc()).limit(1))
-    return {"id":product.id,"supplier_id":product.supplier_id,"supplier_sku":product.supplier_sku,"name":product.name,"brand":product.brand,"category":product.category,"product_url":product.product_url,"image_url":product.image_url,"package_quantity":product.package_quantity,"package_unit":product.package_unit,"normalized_quantity":product.normalized_quantity,"normalized_unit":product.normalized_unit,"attributes":product.attributes,"active":product.active,"last_seen_at":product.last_seen_at,"price":({"gross":observation.price_gross,"net":observation.price_net,"vat_rate":observation.vat_rate,"stock_status":observation.stock_status,"stock_text":observation.stock_text,"checked_at":observation.checked_at} if observation else None)}
+    observations=list(db.scalars(select(PriceObservation).where(PriceObservation.supplier_product_id==product.id,PriceObservation.success.is_(True)).order_by(PriceObservation.checked_at.desc(),PriceObservation.id.desc()).limit(2)))
+    observation=observations[0] if observations else None; previous=observations[1] if len(observations)>1 else None
+    normalized_price=(observation.price_gross/product.normalized_quantity if observation and product.normalized_quantity and product.normalized_quantity>0 else None)
+    return {"id":product.id,"supplier_id":product.supplier_id,"supplier_sku":product.supplier_sku,"name":product.name,"brand":product.brand,"category":product.category,"product_url":product.product_url,"image_url":product.image_url,"package_quantity":product.package_quantity,"package_unit":product.package_unit,"normalized_quantity":product.normalized_quantity,"normalized_unit":product.normalized_unit,"normalized_price_gross":normalized_price,"attributes":product.attributes,"active":product.active,"last_seen_at":product.last_seen_at,"price":({"gross":observation.price_gross,"previous_gross":previous.price_gross if previous else None,"difference":observation.price_gross-previous.price_gross if previous else None,"net":observation.price_net,"vat_rate":observation.vat_rate,"stock_status":observation.stock_status,"stock_text":observation.stock_text,"checked_at":observation.checked_at} if observation else None)}
 
 @app.post("/api/suppliers/import-url",status_code=201)
 def import_supplier_url(payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
@@ -218,17 +226,24 @@ def import_supplier_url(payload:dict,db:Session=Depends(get_db),_:User=Depends(c
     except Exception as exc:
         supplier.requests+=1;supplier.failures+=1;supplier.last_error=str(exc);db.commit();raise HTTPException(502,"Pagina publică a furnizorului nu a putut fi accesată.") from exc
     location=db.scalar(select(SupplierLocation).where(SupplierLocation.supplier_id==supplier.id,SupplierLocation.preferred.is_(True)))
-    product,_=import_product(db,supplier,parsed,location.id if location else None); return product_dict(db,product)
+    product,_=import_product(db,supplier,parsed,location.id if location else None); supplier.manual_imports+=1; db.commit(); return product_dict(db,product)
 
 @app.post("/api/suppliers/import-fixture",status_code=201)
 def import_supplier_fixture(payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
-    allowed={"dedeman_adeziv.html":"DEDEMAN","dedeman_bca.html":"DEDEMAN","mathaus_adeziv.html":"MATHAUS","mathaus_bca.html":"MATHAUS"}; name=str(payload.get("fixture",""))
+    allowed={"dedeman_adeziv.html":"DEDEMAN","dedeman_bca.html":"DEDEMAN","mathaus_adeziv.html":"MATHAUS","mathaus_bca.html":"MATHAUS","leroy_adeziv.html":"LEROY_MERLIN","leroy_bca.html":"LEROY_MERLIN","hornbach_adeziv.html":"HORNBACH","hornbach_bca.html":"HORNBACH"}; name=str(payload.get("fixture",""))
     code=allowed.get(name)
     if not code: raise HTTPException(422,"Fixture necunoscut.")
     supplier=db.scalar(select(Supplier).where(Supplier.code==code)); location=db.scalar(select(SupplierLocation).where(SupplierLocation.supplier_id==supplier.id,SupplierLocation.preferred.is_(True)))
     path=Path(__file__).resolve().parent/"suppliers"/"fixtures"/name
-    parsed=adapter_for(code).parse_product(path.read_text(encoding="utf-8"),f"https://{'www.dedeman.ro' if code=='DEDEMAN' else 'mathaus.ro'}/fixture/{name}")
+    hosts={"DEDEMAN":"www.dedeman.ro","MATHAUS":"mathaus.ro","LEROY_MERLIN":"www.leroymerlin.ro","HORNBACH":"www.hornbach.ro"}
+    parsed=adapter_for(code).parse_product(path.read_text(encoding="utf-8"),f"https://{hosts[code]}/fixture/{name}")
     product,_=import_product(db,supplier,parsed,location.id if location else None,"FIXTURE"); return product_dict(db,product)
+
+@app.get("/api/supplier-products/{product_id}/price-history")
+def supplier_product_price_history(product_id:int,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    require_entity(db,SupplierProduct,product_id,"Produsul nu există.")
+    rows=db.scalars(select(PriceObservation).where(PriceObservation.supplier_product_id==product_id).order_by(PriceObservation.checked_at.desc(),PriceObservation.id.desc()).limit(100))
+    return [{"price_gross":x.price_gross,"price_net":x.price_net,"vat_rate":x.vat_rate,"stock_status":x.stock_status,"checked_at":x.checked_at,"success":x.success,"error":x.error_message} for x in rows]
 
 @app.get("/api/catalog/materials/{material_id}/products")
 def material_products(material_id:int,db:Session=Depends(get_db),_:User=Depends(current_user)):

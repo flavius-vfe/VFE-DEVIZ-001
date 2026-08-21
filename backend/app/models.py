@@ -269,6 +269,7 @@ class Supplier(Base):
     successes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     parse_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    manual_imports: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_success: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
 

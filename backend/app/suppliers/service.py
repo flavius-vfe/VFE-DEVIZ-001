@@ -33,7 +33,9 @@ def match_score(material, product) -> Decimal:
 def import_product(db: Session, supplier: Supplier, parsed, location_id=None, source="WEB"):
     now=datetime.now(timezone.utc)
     product=db.scalar(select(SupplierProduct).where(SupplierProduct.supplier_id==supplier.id,SupplierProduct.supplier_sku==parsed.sku))
-    values=dict(supplier_location_id=location_id,name=parsed.name,brand=parsed.brand,category=parsed.category,product_url=parsed.url,image_url=parsed.image_url,package_quantity=parsed.package_quantity,package_unit=parsed.package_unit,normalized_quantity=parsed.normalized_quantity,normalized_unit=parsed.normalized_unit,attributes=parsed.attributes,active=True,last_seen_at=now)
+    attributes=dict(parsed.attributes or {})
+    if getattr(parsed,"diagnostics",None): attributes["diagnostic_parsare"]=parsed.diagnostics
+    values=dict(supplier_location_id=location_id,name=parsed.name,brand=parsed.brand,category=parsed.category,product_url=parsed.url,image_url=parsed.image_url,package_quantity=parsed.package_quantity,package_unit=parsed.package_unit,normalized_quantity=parsed.normalized_quantity,normalized_unit=parsed.normalized_unit,attributes=attributes,active=True,last_seen_at=now)
     if product:
         for k,v in values.items(): setattr(product,k,v)
     else:

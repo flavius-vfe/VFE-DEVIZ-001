@@ -3,7 +3,12 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
-ALLOWED_DOMAINS = {"DEDEMAN": {"dedeman.ro", "www.dedeman.ro"}, "MATHAUS": {"mathaus.ro", "www.mathaus.ro"}}
+ALLOWED_DOMAINS = {
+    "DEDEMAN": {"dedeman.ro", "www.dedeman.ro"},
+    "MATHAUS": {"mathaus.ro", "www.mathaus.ro"},
+    "LEROY_MERLIN": {"leroymerlin.ro", "www.leroymerlin.ro"},
+    "HORNBACH": {"hornbach.ro", "www.hornbach.ro"},
+}
 MAX_RESPONSE_BYTES = 2_000_000
 
 def validate_supplier_url(url: str, supplier_code: str, resolve: bool = True) -> str:

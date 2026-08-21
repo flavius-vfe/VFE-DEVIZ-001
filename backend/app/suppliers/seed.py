@@ -5,6 +5,8 @@ from ..models import Supplier, SupplierLocation
 DATA={
  "DEDEMAN":dict(name="Dedeman",website="https://www.dedeman.ro",location=("DEDEMAN_PIATRA_NEAMT","Dedeman Piatra Neamț","Str. Dumbravei nr. 29","Dumbrava Roșie","Neamț")),
  "MATHAUS":dict(name="MatHaus",website="https://mathaus.ro",location=("ARABESQUE_PIATRA_NEAMT","Arabesque Piatra-Neamț",None,"Piatra-Neamț","Neamț")),
+ "LEROY_MERLIN":dict(name="Leroy Merlin",website="https://www.leroymerlin.ro",location=("LEROY_BACAU","Leroy Merlin Bacău",None,"Bacău","Bacău")),
+ "HORNBACH":dict(name="Hornbach",website="https://www.hornbach.ro",location=("HORNBACH_ONLINE_REGIONAL","Hornbach online/regional",None,None,None)),
 }
 def seed_suppliers(db:Session):
     for code,data in DATA.items():

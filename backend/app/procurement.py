@@ -2,7 +2,6 @@ from __future__ import annotations
 from dataclasses import dataclass,replace
 from datetime import datetime,timezone,timedelta
 from decimal import Decimal,ROUND_CEILING
-from itertools import product
 from .calc import money
 D=Decimal
 
@@ -86,8 +85,29 @@ def optimize(candidates,deliveries,strategy="CHEAPEST_MIXED_SUPPLIERS",preferred
             if all(any(c.supplier_id==sid for c in grouped[m]) for m in materials):assignments.append([min((c for c in grouped[m] if c.supplier_id==sid),key=lambda c:(packages(c)[3],c.product_id)) for m in materials])
     elif strategy=="CHEAPEST_MIXED_SUPPLIERS":
         options=[[min((c for c in rows if c.supplier_id==sid),key=lambda c:(packages(c)[3],c.product_id)) for sid in sorted({x.supplier_id for x in rows})] for rows in (grouped[m] for m in materials)]
-        if len(options)>22:raise ValueError("Prea multe materiale pentru evaluarea exactă; împărțiți planul.")
-        assignments=product(*options)
+        # Place forced materials first, then group equal supplier sets. This produces a
+        # stable search tree and activates each delivery cost only when first used.
+        options.sort(key=lambda rows:(len(rows),tuple(c.supplier_id for c in rows),rows[0].material_id))
+        suffix=[D("0") for _ in range(len(options)+1)]
+        for index in range(len(options)-1,-1,-1):suffix[index]=suffix[index+1]+min(packages(c)[3] for c in options[index])
+        best_cost:D|None=None; best_key=None; best_assignment=[]
+        def search(index,chosen,product_total,active):
+            nonlocal best_cost,best_key,best_assignment
+            lower=product_total+suffix[index]+sum((deliveries[s].cost or D("0") for s in active),D("0"))
+            if best_cost is not None and lower>best_cost:return
+            if index==len(options):
+                result=basket(chosen,deliveries,include_unknown,package_overrides)
+                total=result["landed_total_gross"]
+                if total is None:return
+                codes=tuple(c.supplier_code for c in chosen); key=(total,len(active),codes,tuple(c.product_id for c in chosen))
+                if best_key is None or key<best_key:best_cost,best_key,best_assignment=total,key,list(chosen)
+                return
+            for candidate in options[index]:
+                delivery=deliveries.get(candidate.supplier_id,Delivery(candidate.supplier_id,None,"UNKNOWN"))
+                if delivery.cost is None and not include_unknown:continue
+                search(index+1,chosen+[candidate],product_total+packages(candidate,package_overrides.get(candidate.material_id) if package_overrides else None)[3],active|{candidate.supplier_id})
+        search(0,[],D("0"),set())
+        assignments=[best_assignment] if best_assignment else []
     else:raise ValueError("Strategie de aprovizionare invalidă.")
     results=[]
     for a in assignments:
@@ -96,4 +116,6 @@ def optimize(candidates,deliveries,strategy="CHEAPEST_MIXED_SUPPLIERS",preferred
             fresh=sum((int(c.checked_at.timestamp()) for c in a));codes=tuple(sorted({c.supplier_code for c in a}));preferred_penalty=0 if preferred_supplier_id in {c.supplier_id for c in a} else 1
             results.append((result["landed_total_gross"],len(codes),-fresh,preferred_penalty,codes,result))
     if not results:raise ValueError("Niciun coș complet nu are transport cunoscut.")
-    return min(results,key=lambda x:x[:-1])[-1]
+    answer=min(results,key=lambda x:x[:-1])[-1]
+    if strategy=="CHEAPEST_MIXED_SUPPLIERS":answer["optimization_method"]="BRANCH_AND_BOUND"
+    return answer

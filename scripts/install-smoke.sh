@@ -119,18 +119,22 @@ curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/
 material_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/catalog/materials | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
 dedeman_product=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"dedeman_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture)
 mathaus_product=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"mathaus_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture)
+leroy_product=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"leroy_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture)
+hornbach_product=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"hornbach_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture)
 dedeman_id=$(printf '%s' "$dedeman_product" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 mathaus_id=$(printf '%s' "$mathaus_product" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-for product_id in "$dedeman_id" "$mathaus_id"; do
+leroy_id=$(printf '%s' "$leroy_product" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+hornbach_id=$(printf '%s' "$hornbach_product" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+for product_id in "$dedeman_id" "$mathaus_id" "$leroy_id" "$hornbach_id"; do
   curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"approved":true,"notes":"Smoke"}' "http://127.0.0.1:8030/api/catalog/materials/$material_id/products/$product_id/match" | grep --quiet '"match_status":"MANUAL"'
 done
-curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/catalog/materials/$material_id/compare?required_quantity=100" | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert len(rows)==2; assert all(x["packages_to_buy"]==4 for x in rows)'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/catalog/materials/$material_id/compare?required_quantity=100" | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert len(rows)==4; assert all(x["packages_to_buy"]==4 for x in rows)'
 snapshot=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"supplier_lines\":[{\"description\":\"Adeziv BCA\",\"unit\":\"kg\",\"quantity\":\"100\",\"unit_price_net\":\"35.53\",\"vat_rate\":\"21\",\"unit_price_gross\":\"42.99\",\"total_gross\":\"171.96\",\"supplier_product_id\":$dedeman_id,\"supplier_name\":\"Dedeman\",\"supplier_sku\":\"DED-1045123\",\"product_name\":\"Adeziv BCA 25 kg\",\"package_quantity\":\"25\",\"package_unit\":\"kg\",\"purchase_quantity\":\"100\",\"packages_to_buy\":4,\"product_url\":\"https://www.dedeman.ro/fixture/dedeman_adeziv.html\"}]}" "http://127.0.0.1:8030/api/projects/$project_id/estimate/snapshot")
 printf '%s' "$snapshot" | grep --quiet '"line_count":1'
 curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"dedeman_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture >/dev/null
 docker compose exec -T postgres psql -U deviz -d deviz -tAc "SELECT supplier_sku || ':' || total_gross FROM estimate_snapshot_lines" | grep --quiet 'DED-1045123:171.96'
 
-for route in suppliers suppliers/dedeman suppliers/mathaus "catalog/materiale/$material_id/produse"; do
+for route in suppliers suppliers/dedeman suppliers/mathaus suppliers/leroy_merlin suppliers/hornbach "catalog/materiale/$material_id/produse"; do
   curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null
 done
 
@@ -139,7 +143,9 @@ procurement_item_id=$(printf '%s' "$procurement_item" | python3 -c 'import json,
 curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"resource_type\":\"MATERIAL\",\"resource_id\":$material_id,\"description\":\"Adeziv generic\",\"unit\":\"kg\",\"quantity\":\"100\",\"waste_percent\":\"0\",\"unit_price_net\":\"35\",\"vat_rate\":\"21\"}" "http://127.0.0.1:8030/api/estimate-items/$procurement_item_id/resources" >/dev/null
 dedeman_supplier_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/suppliers | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["code"]=="DEDEMAN"))')
 mathaus_supplier_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/suppliers | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["code"]=="MATHAUS"))')
-for pair in "$dedeman_supplier_id:650" "$mathaus_supplier_id:850"; do
+leroy_supplier_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/suppliers | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["code"]=="LEROY_MERLIN"))')
+hornbach_supplier_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/suppliers | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin) if x["code"]=="HORNBACH"))')
+for pair in "$dedeman_supplier_id:650" "$mathaus_supplier_id:850" "$leroy_supplier_id:700" "$hornbach_supplier_id:750"; do
   sid=${pair%%:*}; cost=${pair##*:}
   curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"supplier_id\":$sid,\"delivery_cost_gross\":\"$cost\"}" "http://127.0.0.1:8030/api/projects/$project_id/delivery-quotes/manual" >/dev/null
 done

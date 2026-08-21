@@ -32,6 +32,15 @@ def test_cheapest_mixed_accounts_for_delivery_and_is_deterministic():
     assert first["landed_total_gross"]==second["landed_total_gross"]
     assert [x["supplier_code"] for x in first["items"]]==[x["supplier_code"] for x in second["items"]]
 
+def test_four_supplier_branch_and_bound_exact_result():
+    codes=["DEDEMAN","MATHAUS","LEROY_MERLIN","HORNBACH"]
+    rows=[c(mid,sid,code,5+((mid*sid)%7)) for mid in range(1,13) for sid,code in enumerate(codes,1)]
+    deliveries={sid:Delivery(sid,D(str(10*sid))) for sid in range(1,5)}
+    first=optimize(rows,deliveries);second=optimize(list(reversed(rows)),deliveries)
+    assert first["optimization_method"]=="BRANCH_AND_BOUND"
+    assert first["landed_total_gross"]==second["landed_total_gross"]
+    assert [(x["material_id"],x["supplier_id"]) for x in first["items"]]==[(x["material_id"],x["supplier_id"]) for x in second["items"]]
+
 def test_unknown_delivery_default_off_and_optional_on():
     rows=[c(1,1,"DEDEMAN",5)]
     with pytest.raises(ValueError,match="transport cunoscut"):optimize(rows,{1:Delivery(1,None)},include_unknown=False)

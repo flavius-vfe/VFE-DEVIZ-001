@@ -1,9 +1,10 @@
 from __future__ import annotations
 from decimal import Decimal
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, delete, text
+from sqlalchemy import select, delete, text, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,8 @@ from .models import (
     SystemSetting, User, UserSession, Project, Building, Level,
     EstimateSection, EstimateItem, WorkItem, Material, LaborResource, EquipmentResource,
     OtherResource, WorkRecipe, RecipeResource, ProjectResourcePrice, EstimateResourceLine,
-    GeometryCalculation, GeometryEstimateLink, MeshCatalogueItem, WorkCategory,
+    GeometryCalculation, GeometryEstimateLink, MeshCatalogueItem, WorkCategory, Supplier, SupplierLocation,
+    SupplierProduct, ProductMatch, PriceObservation, SupplierRefreshJob, DeliveryQuote, EstimateVersion, EstimateSnapshotLine,
 )
 from .schemas import (
     SetupStatusOut, SetupIn, LoginIn, UserOut,
@@ -35,8 +37,11 @@ from .calc import (
 from .estimation import calculate_cost, gross_from_net_exact, recipe_quantity, aggregate_totals
 from .geometry import calculate as calculate_geometry, UNITS as GEOMETRY_UNITS, with_waste as geometry_with_waste
 from .catalogue import seed_catalogue, export_catalogue
+from .suppliers import adapter_for, import_product, match_score, package_purchase
+from .suppliers.seed import seed_suppliers
+from .suppliers.security import validate_supplier_url
 
-app = FastAPI(title="VFE Deviz API", version="0.1.6")
+app = FastAPI(title="VFE Deviz API", version="0.1.7")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -56,7 +61,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.6"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.7"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -90,6 +95,7 @@ def setup(payload: SetupIn, db: Session = Depends(get_db)):
         db.merge(SystemSetting(key=key, value=value))
     db.commit()
     seed_catalogue(db)
+    seed_suppliers(db)
     db.refresh(user)
     return user
 
@@ -165,11 +171,117 @@ def get_project(
         raise HTTPException(status_code=404, detail="Proiectul nu există.")
     return project
 
+@app.put("/api/projects/{project_id}/material-price-strategy",response_model=ProjectOut)
+def update_material_price_strategy(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    project=require_entity(db,Project,project_id,"Proiectul nu există.");strategy=payload.get("strategy")
+    if strategy not in {"MANUAL","CHEAPEST_PRODUCT_PRICE","PREFERRED_SUPPLIER"}:raise HTTPException(422,"Strategie de preț invalidă.")
+    project.material_price_strategy=strategy;project.preferred_supplier_id=payload.get("preferred_supplier_id") if strategy=="PREFERRED_SUPPLIER" else project.preferred_supplier_id;db.commit();db.refresh(project);return project
+
 def require_entity(db: Session, model, entity_id: int, detail: str):
     entity = db.get(model, entity_id)
     if not entity:
         raise HTTPException(status_code=404, detail=detail)
     return entity
+
+def supplier_dict(db: Session, supplier: Supplier):
+    locations=list(db.scalars(select(SupplierLocation).where(SupplierLocation.supplier_id==supplier.id)))
+    return {"id":supplier.id,"code":supplier.code,"name":supplier.name,"website":supplier.website,"active":supplier.active,
+      "status":"FUNCTIONAL" if supplier.last_error is None else "DEGRADED","requests":supplier.requests,"successes":supplier.successes,
+      "failures":supplier.failures,"parse_failures":supplier.parse_failures,"last_success":supplier.last_success,"last_error":supplier.last_error,
+      "locations":[{"id":x.id,"code":x.code,"name":x.name,"address":x.address,"locality":x.locality,"county":x.county,"active":x.active} for x in locations]}
+
+@app.get("/api/suppliers")
+def list_suppliers(db:Session=Depends(get_db),_:User=Depends(current_user)):
+    return [supplier_dict(db,x) for x in db.scalars(select(Supplier).order_by(Supplier.name))]
+
+@app.get("/api/suppliers/{code}")
+def get_supplier(code:str,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    supplier=db.scalar(select(Supplier).where(Supplier.code==code.upper()))
+    if not supplier: raise HTTPException(404,"Furnizorul nu există.")
+    result=supplier_dict(db,supplier); products=list(db.scalars(select(SupplierProduct).where(SupplierProduct.supplier_id==supplier.id)))
+    result["products"]=[product_dict(db,x) for x in products]; return result
+
+def product_dict(db, product):
+    observation=db.scalar(select(PriceObservation).where(PriceObservation.supplier_product_id==product.id,PriceObservation.success.is_(True)).order_by(PriceObservation.checked_at.desc()).limit(1))
+    return {"id":product.id,"supplier_id":product.supplier_id,"supplier_sku":product.supplier_sku,"name":product.name,"brand":product.brand,"category":product.category,"product_url":product.product_url,"image_url":product.image_url,"package_quantity":product.package_quantity,"package_unit":product.package_unit,"normalized_quantity":product.normalized_quantity,"normalized_unit":product.normalized_unit,"attributes":product.attributes,"active":product.active,"last_seen_at":product.last_seen_at,"price":({"gross":observation.price_gross,"net":observation.price_net,"vat_rate":observation.vat_rate,"stock_status":observation.stock_status,"stock_text":observation.stock_text,"checked_at":observation.checked_at} if observation else None)}
+
+@app.post("/api/suppliers/import-url",status_code=201)
+def import_supplier_url(payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    supplier=db.scalar(select(Supplier).where(Supplier.code==str(payload.get("supplier","")).upper()))
+    if not supplier: raise HTTPException(404,"Furnizorul nu există.")
+    url=str(payload.get("url", ""));
+    try: validate_supplier_url(url,supplier.code); adapter=adapter_for(supplier.code); parsed=adapter.parse_product(adapter.fetch_product(url),url)
+    except ValueError as exc:
+        supplier.requests+=1;supplier.parse_failures+=1;supplier.last_error=str(exc);db.commit();raise HTTPException(422,str(exc)) from exc
+    except Exception as exc:
+        supplier.requests+=1;supplier.failures+=1;supplier.last_error=str(exc);db.commit();raise HTTPException(502,"Pagina publică a furnizorului nu a putut fi accesată.") from exc
+    location=db.scalar(select(SupplierLocation).where(SupplierLocation.supplier_id==supplier.id,SupplierLocation.preferred.is_(True)))
+    product,_=import_product(db,supplier,parsed,location.id if location else None); return product_dict(db,product)
+
+@app.post("/api/suppliers/import-fixture",status_code=201)
+def import_supplier_fixture(payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    allowed={"dedeman_adeziv.html":"DEDEMAN","dedeman_bca.html":"DEDEMAN","mathaus_adeziv.html":"MATHAUS","mathaus_bca.html":"MATHAUS"}; name=str(payload.get("fixture",""))
+    code=allowed.get(name)
+    if not code: raise HTTPException(422,"Fixture necunoscut.")
+    supplier=db.scalar(select(Supplier).where(Supplier.code==code)); location=db.scalar(select(SupplierLocation).where(SupplierLocation.supplier_id==supplier.id,SupplierLocation.preferred.is_(True)))
+    path=Path(__file__).resolve().parent/"suppliers"/"fixtures"/name
+    parsed=adapter_for(code).parse_product(path.read_text(encoding="utf-8"),f"https://{'www.dedeman.ro' if code=='DEDEMAN' else 'mathaus.ro'}/fixture/{name}")
+    product,_=import_product(db,supplier,parsed,location.id if location else None,"FIXTURE"); return product_dict(db,product)
+
+@app.get("/api/catalog/materials/{material_id}/products")
+def material_products(material_id:int,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    material=require_entity(db,Material,material_id,"Materialul nu există."); products=list(db.scalars(select(SupplierProduct).where(SupplierProduct.active.is_(True))))
+    matches={x.supplier_product_id:x for x in db.scalars(select(ProductMatch).where(ProductMatch.material_id==material_id))}
+    result=[]
+    for p in products:
+        match=matches.get(p.id); row=product_dict(db,p); row["supplier"]=db.get(Supplier,p.supplier_id).name; row["confidence"]=match.confidence if match else match_score(material,p); row["approved"]=bool(match and match.approved); row["match_status"]=match.match_status if match else "AUTO"; result.append(row)
+    return sorted(result,key=lambda x:x["confidence"],reverse=True)
+
+@app.post("/api/catalog/materials/{material_id}/products/{product_id}/match")
+def set_product_match(material_id:int,product_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    material=require_entity(db,Material,material_id,"Materialul nu există."); product=require_entity(db,SupplierProduct,product_id,"Produsul nu există.")
+    match=db.scalar(select(ProductMatch).where(ProductMatch.material_id==material_id,ProductMatch.supplier_product_id==product_id)) or ProductMatch(material_id=material_id,supplier_product_id=product_id,confidence=match_score(material,product))
+    approve=bool(payload.get("approved")); match.approved=approve; match.match_status="MANUAL" if approve else "REJECTED"; match.approved_at=datetime.now(timezone.utc) if approve else None; match.notes=payload.get("notes"); db.add(match); db.commit(); return {"id":match.id,"approved":match.approved,"match_status":match.match_status,"confidence":match.confidence}
+
+@app.post("/api/suppliers/refresh")
+def schedule_refresh(payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    product_id=payload.get("supplier_product_id"); supplier_id=payload.get("supplier_id")
+    if product_id and not supplier_id: supplier_id=require_entity(db,SupplierProduct,int(product_id),"Produsul nu există.").supplier_id
+    supplier=require_entity(db,Supplier,int(supplier_id),"Furnizorul nu există.")
+    product_ids=[int(product_id)] if product_id else list(db.scalars(select(SupplierProduct.id).where(SupplierProduct.supplier_id==supplier.id,SupplierProduct.active.is_(True))))
+    if not product_ids: raise HTTPException(422,"Furnizorul nu are produse active de actualizat.")
+    jobs=[SupplierRefreshJob(supplier_id=supplier.id,supplier_product_id=pid,job_type=payload.get("job_type","PRODUCT"),status="PENDING",scheduled_at=datetime.now(timezone.utc)) for pid in product_ids]
+    db.add_all(jobs);db.commit();return {"id":jobs[0].id,"status":"PENDING","jobs_created":len(jobs)}
+
+@app.post("/api/calc/supplier-package")
+def calc_supplier_package(payload:dict,_:User=Depends(current_user)):
+    try:return package_purchase(payload["required_quantity"],payload["package_quantity"],payload["package_price"])
+    except (KeyError,ValueError) as exc: raise HTTPException(422,str(exc)) from exc
+
+@app.get("/api/catalog/materials/{material_id}/compare")
+def compare_material_products(material_id:int,required_quantity:Decimal,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    require_entity(db,Material,material_id,"Materialul nu există."); matches=list(db.scalars(select(ProductMatch).where(ProductMatch.material_id==material_id,ProductMatch.approved.is_(True))))
+    rows=[]
+    for match in matches:
+        product=db.get(SupplierProduct,match.supplier_product_id); observation=db.scalar(select(PriceObservation).where(PriceObservation.supplier_product_id==product.id,PriceObservation.success.is_(True)).order_by(PriceObservation.checked_at.desc(),PriceObservation.id.desc()).limit(1))
+        if not observation or not product.package_quantity: continue
+        purchase=package_purchase(required_quantity,product.package_quantity,observation.price_gross); supplier=db.get(Supplier,product.supplier_id)
+        rows.append({"supplier":supplier.name,"product":product.name,"supplier_sku":product.supplier_sku,"required_quantity":required_quantity,"package_quantity":product.package_quantity,"package_unit":product.package_unit,"price_checked_at":observation.checked_at,"delivery_cost":"UNKNOWN",**purchase})
+    return sorted(rows,key=lambda x:x["purchase_cost"])
+
+@app.post("/api/projects/{project_id}/delivery-quotes",status_code=201)
+def create_delivery_quote(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    project=require_entity(db,Project,project_id,"Proiectul nu există.");supplier=require_entity(db,Supplier,int(payload["supplier_id"]),"Furnizorul nu există.")
+    quote=DeliveryQuote(project_id=project.id,supplier_id=supplier.id,supplier_location_id=payload.get("supplier_location_id"),destination_locality=payload.get("destination_locality") or project.locality or "Ceahlău",destination_county=payload.get("destination_county") or project.county or "Neamț",cost_gross=payload.get("cost_gross"),source="MANUAL",checked_at=datetime.now(timezone.utc),notes=payload.get("notes"));db.add(quote);db.commit();db.refresh(quote);return {"id":quote.id,"cost_gross":quote.cost_gross,"source":quote.source}
+
+@app.post("/api/projects/{project_id}/estimate/snapshot",status_code=201)
+def snapshot_estimate(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
+    require_entity(db,Project,project_id,"Proiectul nu există.");next_version=(db.scalar(select(func.max(EstimateVersion.version)).where(EstimateVersion.project_id==project_id)) or 0)+1
+    lines=payload.get("supplier_lines",[]);total=sum((Decimal(str(x["total_gross"])) for x in lines),Decimal("0"));vat_rate=Decimal(str(payload.get("vat_rate","21")));net=net_from_gross(total,vat_rate)
+    version=EstimateVersion(project_id=project_id,version=next_version,status="ISSUED",vat_rate=vat_rate,total_net=net,vat_total=money(total-net),total_gross=money(total),issued_at=datetime.now(timezone.utc));db.add(version);db.flush()
+    for x in lines:
+        db.add(EstimateSnapshotLine(estimate_version_id=version.id,source_item_id=x.get("source_item_id"),resource_type="MATERIAL",description=x["description"],unit=x["unit"],quantity=x["quantity"],unit_price_net=x["unit_price_net"],vat_rate=x.get("vat_rate",vat_rate),unit_price_gross=x["unit_price_gross"],total_gross=x["total_gross"],supplier_product_id=x.get("supplier_product_id"),supplier_name=x.get("supplier_name"),supplier_sku=x.get("supplier_sku"),product_name=x.get("product_name"),package_quantity=x.get("package_quantity"),package_unit=x.get("package_unit"),purchase_quantity=x.get("purchase_quantity"),packages_to_buy=x.get("packages_to_buy"),product_url=x.get("product_url"),price_checked_at=x.get("price_checked_at")))
+    db.commit();return {"id":version.id,"version":version.version,"status":version.status,"total_gross":version.total_gross,"line_count":len(lines)}
 
 @app.get("/api/projects/{project_id}/buildings", response_model=list[BuildingOut])
 def list_buildings(project_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):

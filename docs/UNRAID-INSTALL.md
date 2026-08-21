@@ -1,6 +1,6 @@
 # Instalare VFE Deviz pe Unraid
 
-Versiune recomandată: `0.1.6`. Instalarea nu folosește reverse proxy; accesul este direct prin IP-ul LAN sau prin VPN-ul existent.
+Versiune recomandată: `0.1.7`. Instalarea nu folosește reverse proxy; accesul este direct prin IP-ul LAN sau prin VPN-ul existent.
 
 ## 1. Pregătire
 
@@ -34,7 +34,7 @@ Pornește containerul și așteaptă starea `healthy`.
 
 Importă `unraid/templates/deviz-backend.xml` și setează:
 
-- imagine: `ghcr.io/flavius-vfe/vfe-deviz-backend:0.1.6`;
+- imagine: `ghcr.io/flavius-vfe/vfe-deviz-backend:0.1.7`;
 - rețea: `vfe-deviz`;
 - port host `8030` → container `8000`;
 - `DATABASE_URL=postgresql+psycopg://deviz:<PAROLA_ALEASĂ>@vfe-deviz-postgres:5432/deviz`;
@@ -57,7 +57,7 @@ Ambele trebuie să răspundă cu status HTTP `200`.
 
 Importă `unraid/templates/deviz-worker.xml` și setează:
 
-- imagine: `ghcr.io/flavius-vfe/vfe-deviz-worker:0.1.6`;
+- imagine: `ghcr.io/flavius-vfe/vfe-deviz-worker:0.1.7`;
 - rețea: `vfe-deviz`;
 - același `DATABASE_URL` ca la backend;
 - `REFRESH_INTERVAL_SECONDS=86400`;
@@ -69,7 +69,7 @@ Worker-ul reîncearcă automat conexiunea la PostgreSQL și devine `healthy` dup
 
 Importă `unraid/templates/deviz-frontend.xml` și setează:
 
-- imagine: `ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.6`;
+- imagine: `ghcr.io/flavius-vfe/vfe-deviz-frontend:0.1.7`;
 - rețea: `vfe-deviz`;
 - port host `3080` → container `3000`;
 - `API_BASE_URL` gol pentru configurația recomandată.
@@ -87,6 +87,8 @@ Cu `API_BASE_URL` gol, browserul folosește automat hostname-ul paginii și port
 Sesiunea administratorului este păstrată 7 zile. Nu expune aplicația direct la Internet; folosește numai LAN sau VPN.
 
 ## 7. Verificare și diagnostic
+
+Deschide `http://<SERVER_IP>:3080/suppliers` pentru furnizori. Importă numai URL-uri publice Dedeman sau MatHaus; fiecare produs rămâne o ofertă asociată unui material generic. Stocul local neconfirmat este `UNKNOWN`, transportul se introduce manual, iar actualizarea automată vizează doar produsele folosite în proiecte active, o dată la 24 de ore.
 
 - `docker ps` trebuie să arate toate cele patru containere ca `healthy`;
 - numai porturile LAN `3080` și `8030` trebuie publicate;

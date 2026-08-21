@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vfe-deviz-backend"
-version = "0.1.6"
+version = "0.1.7"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.141.1",
@@ -26,6 +26,9 @@ test = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.suppliers" = ["fixtures/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

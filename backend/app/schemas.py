@@ -35,6 +35,7 @@ class ProjectIn(BaseModel):
     county: str = "Neamț"
     postal_code: str | None = None
     default_waste_percent: Decimal = Field(default=Decimal("5"), ge=0, le=100)
+    material_price_strategy: Literal["MANUAL", "CHEAPEST_PRODUCT_PRICE", "PREFERRED_SUPPLIER"] = "MANUAL"
 
 class ProjectOut(ProjectIn):
     id: int

@@ -115,4 +115,23 @@ curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8
 curl --fail --silent --cookie "$cookie_jar" --request DELETE "http://127.0.0.1:8030/api/estimate-items/$geometry_item_id" >/dev/null
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/sections/$section_id/items" | grep --quiet '^\[\]$'
 
+# Furnizori: parsare offline, asociere, comparație pe pachete și snapshot imuabil.
+material_id=$(curl --fail --silent --cookie "$cookie_jar" http://127.0.0.1:8030/api/catalog/materials | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+dedeman_product=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"dedeman_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture)
+mathaus_product=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"mathaus_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture)
+dedeman_id=$(printf '%s' "$dedeman_product" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+mathaus_id=$(printf '%s' "$mathaus_product" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+for product_id in "$dedeman_id" "$mathaus_id"; do
+  curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"approved":true,"notes":"Smoke"}' "http://127.0.0.1:8030/api/catalog/materials/$material_id/products/$product_id/match" | grep --quiet '"match_status":"MANUAL"'
+done
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/catalog/materials/$material_id/compare?required_quantity=100" | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert len(rows)==2; assert all(x["packages_to_buy"]==4 for x in rows)'
+snapshot=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"supplier_lines\":[{\"description\":\"Adeziv BCA\",\"unit\":\"kg\",\"quantity\":\"100\",\"unit_price_net\":\"35.53\",\"vat_rate\":\"21\",\"unit_price_gross\":\"42.99\",\"total_gross\":\"171.96\",\"supplier_product_id\":$dedeman_id,\"supplier_name\":\"Dedeman\",\"supplier_sku\":\"DED-1045123\",\"product_name\":\"Adeziv BCA 25 kg\",\"package_quantity\":\"25\",\"package_unit\":\"kg\",\"purchase_quantity\":\"100\",\"packages_to_buy\":4,\"product_url\":\"https://www.dedeman.ro/fixture/dedeman_adeziv.html\"}]}" "http://127.0.0.1:8030/api/projects/$project_id/estimate/snapshot")
+printf '%s' "$snapshot" | grep --quiet '"line_count":1'
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"fixture":"dedeman_adeziv.html"}' http://127.0.0.1:8030/api/suppliers/import-fixture >/dev/null
+docker compose exec -T postgres psql -U deviz -d deviz -tAc "SELECT supplier_sku || ':' || total_gross FROM estimate_snapshot_lines" | grep --quiet 'DED-1045123:171.96'
+
+for route in suppliers suppliers/dedeman suppliers/mathaus "catalog/materiale/$material_id/produse"; do
+  curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null
+done
+
 echo 'Smoke test instalare Unraid: OK'

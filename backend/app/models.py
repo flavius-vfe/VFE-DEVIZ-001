@@ -46,6 +46,7 @@ class Project(Base):
     postal_code: Mapped[str | None] = mapped_column(String(20))
     default_waste_percent: Mapped[Decimal] = mapped_column(Numeric(7, 3), default=Decimal("5.000"), nullable=False)
     preferred_supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))
+    material_price_strategy: Mapped[str] = mapped_column(String(40), default="MANUAL", nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -247,49 +248,71 @@ class MeshCatalogueItem(Base):
 
 class Supplier(Base):
     __tablename__ = "suppliers"
+    __table_args__ = (Index("ix_suppliers_code_unique", "code", unique=True),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False, default="RETAILER")
     website: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
+    requests_per_minute: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    request_timeout: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    backoff_seconds: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    requests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    successes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    parse_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_success: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
 
 class SupplierLocation(Base):
     __tablename__ = "supplier_locations"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
+    code: Mapped[str] = mapped_column(String(80), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     locality: Mapped[str | None] = mapped_column(String(160))
     county: Mapped[str | None] = mapped_column(String(160))
     address: Mapped[str | None] = mapped_column(Text)
     preferred: Mapped[bool] = mapped_column(Boolean, default=False)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 class SupplierProduct(Base):
     __tablename__ = "supplier_products"
     __table_args__ = (UniqueConstraint("supplier_id", "supplier_sku", name="uq_supplier_sku"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
+    supplier_location_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_locations.id"))
     supplier_sku: Mapped[str] = mapped_column(String(120), nullable=False)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     brand: Mapped[str | None] = mapped_column(String(200))
+    category: Mapped[str | None] = mapped_column(String(200))
     product_url: Mapped[str] = mapped_column(Text, nullable=False)
+    image_url: Mapped[str | None] = mapped_column(Text)
     package_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18,6))
     package_unit: Mapped[str | None] = mapped_column(String(20))
     normalized_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18,6))
     normalized_unit: Mapped[str | None] = mapped_column(String(20))
     attributes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 class ProductMatch(Base):
-    __tablename__ = "product_matches"
+    __tablename__ = "material_product_matches"
     __table_args__ = (UniqueConstraint("material_id", "supplier_product_id", name="uq_material_product_match"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id", ondelete="CASCADE"), nullable=False)
     supplier_product_id: Mapped[int] = mapped_column(ForeignKey("supplier_products.id", ondelete="CASCADE"), nullable=False)
     confidence: Mapped[Decimal] = mapped_column(Numeric(5,4), nullable=False)
+    match_status: Mapped[str] = mapped_column(String(20), default="AUTO", nullable=False)
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
-    matching_notes: Mapped[str | None] = mapped_column(Text)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
 
 class PriceObservation(Base):
     __tablename__ = "price_observations"
@@ -299,13 +322,41 @@ class PriceObservation(Base):
     supplier_location_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_locations.id"))
     price_net: Mapped[Decimal | None] = mapped_column(Numeric(18,4))
     vat_rate: Mapped[Decimal] = mapped_column(Numeric(7,3), default=Decimal("21"))
+    vat_amount: Mapped[Decimal | None] = mapped_column(Numeric(18,4))
     price_gross: Mapped[Decimal] = mapped_column(Numeric(18,4), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="RON", nullable=False)
     stock_status: Mapped[str] = mapped_column(String(40), default="UNKNOWN", nullable=False)
+    stock_text: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(40), default="WEB", nullable=False)
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     success: Mapped[bool] = mapped_column(Boolean, default=True)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+class SupplierRefreshJob(Base):
+    __tablename__ = "supplier_refresh_jobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
+    supplier_product_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_products.id", ondelete="CASCADE"))
+    job_type: Mapped[str] = mapped_column(String(40), nullable=False, default="PRODUCT")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+class DeliveryQuote(Base):
+    __tablename__ = "delivery_quotes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
+    supplier_location_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_locations.id"))
+    destination_locality: Mapped[str] = mapped_column(String(160), default="Ceahlău", nullable=False)
+    destination_county: Mapped[str] = mapped_column(String(160), default="Neamț", nullable=False)
+    cost_gross: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    source: Mapped[str] = mapped_column(String(20), default="MANUAL", nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    notes: Mapped[str | None] = mapped_column(Text)
 
 class EstimateVersion(Base):
     __tablename__ = "estimate_versions"
@@ -337,3 +388,9 @@ class EstimateSnapshotLine(Base):
     supplier_sku: Mapped[str | None] = mapped_column(String(120))
     product_url: Mapped[str | None] = mapped_column(Text)
     price_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    supplier_product_id: Mapped[int | None] = mapped_column(Integer)
+    product_name: Mapped[str | None] = mapped_column(String(500))
+    package_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    package_unit: Mapped[str | None] = mapped_column(String(20))
+    purchase_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    packages_to_buy: Mapped[int | None] = mapped_column(Integer)

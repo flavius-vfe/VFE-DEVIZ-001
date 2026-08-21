@@ -42,8 +42,9 @@ from .suppliers.seed import seed_suppliers
 from .suppliers.security import validate_supplier_url
 from .procurement_api import router as procurement_router
 from .commercial_api import router as commercial_router
+from .logistics_api import router as logistics_router
 
-app = FastAPI(title="VFE Deviz API", version="0.2.0")
+app = FastAPI(title="VFE Deviz API", version="0.2.1")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -62,10 +63,11 @@ app.add_middleware(
 )
 app.include_router(procurement_router)
 app.include_router(commercial_router)
+app.include_router(logistics_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.2.0"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.2.1"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):

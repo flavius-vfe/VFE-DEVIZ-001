@@ -18,7 +18,7 @@ def fetch_price(url,code,timeout):
     interval=60/max(RATE_LIMITS[code],1);wait=interval-(time.monotonic()-LAST_REQUEST.get(code,0))
     if wait>0:time.sleep(wait)
     LAST_REQUEST[code]=time.monotonic()
-    allowed(url,code); req=Request(url,headers={"User-Agent":"VFE-Deviz/0.2.0 supplier refresh","Accept":"text/html"})
+    allowed(url,code); req=Request(url,headers={"User-Agent":"VFE-Deviz/0.2.1 supplier refresh","Accept":"text/html"})
     with build_opener(NoRedirect).open(req,timeout=timeout) as r: body=r.read(2_000_001)
     if len(body)>2_000_000: raise ValueError("Răspuns prea mare")
     html=body.decode("utf-8","replace"); patterns=[r'"price"\s*:\s*"?([0-9.,]+)',r'product:price:amount[^>]+content="([0-9.,]+)']

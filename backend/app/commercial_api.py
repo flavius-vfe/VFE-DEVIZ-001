@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .db import get_db
 from .deps import current_user
-from .models import User,Project,Supplier,SupplierQuote,SupplierQuoteItem,Discount,Attachment,PurchaseOrder,PurchaseOrderItem,PurchaseOrderSequence,AuditEvent,ProcurementPlan,ProcurementPlanItem,ProcurementPlanSupplierTotal,Material
+from .models import User,Project,Supplier,SupplierQuote,SupplierQuoteItem,Discount,Attachment,PurchaseOrder,PurchaseOrderItem,PurchaseOrderSequence,AuditEvent,ProcurementPlan,ProcurementPlanItem,ProcurementPlanSupplierTotal,Material,PurchaseDelivery,DeliveryIssue,MaterialReturn
 from .commercial import dec,line_calculation,quote_calculation,validity,validate_attachment,validate_signature,DISCOUNT_TYPES
 from .commercial_exports import quote_pdf,quote_xlsx,order_pdf,order_xlsx
 from .config import settings
@@ -128,7 +128,8 @@ def next_number(db):
     if not seq:seq=PurchaseOrderSequence(year=year,value=0);db.add(seq);db.flush()
     seq.value+=1;return f"PO-{year}-{seq.value:04d}"
 def order_dict(db,o):
-    out=cols(o);out["supplier_name"]=db.get(Supplier,o.supplier_id).name;out["project_name"]=db.get(Project,o.project_id).name;out["items"]=[cols(x) for x in db.scalars(select(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id==o.id))];return out
+    from .logistics_api import reconciliation
+    out=cols(o);out["supplier_name"]=db.get(Supplier,o.supplier_id).name;out["project_name"]=db.get(Project,o.project_id).name;out["items"]=[cols(x) for x in db.scalars(select(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id==o.id))];out["reconciliation"]=reconciliation(db,o);return out
 def recalc_order(db,o):
     items=list(db.scalars(select(PurchaseOrderItem).where(PurchaseOrderItem.purchase_order_id==o.id)));o.subtotal_net=sum((x.line_total_net+x.discount_net for x in items),Decimal("0"));o.discount_total=sum((x.discount_net for x in items),Decimal("0"));o.vat_total=sum((x.line_vat for x in items),Decimal("0"))+o.transport_cost*Decimal("0.21");o.total_gross=o.subtotal_net-o.discount_total+o.transport_cost+o.vat_total
 def order_from_quote(db,q):
@@ -220,5 +221,5 @@ def download_attachment(project_id:int,attachment_id:int,db:Session=Depends(get_
 
 @router.get("/projects/{project_id}/commercial-dashboard")
 def dashboard(project_id:int,db:Session=Depends(get_db),_:User=Depends(current_user)):
-    quotes=list(db.scalars(select(SupplierQuote).where(SupplierQuote.project_id==project_id)));orders=list(db.scalars(select(PurchaseOrder).where(PurchaseOrder.project_id==project_id)))
-    return {"active_quotes":sum(x.status in {"ACTIVE","SELECTED"} and validity(x.valid_until)!="EXPIRED" for x in quotes),"expiring_quotes":sum(validity(x.valid_until)=="EXPIRING_SOON" for x in quotes),"draft_orders":sum(x.status=="DRAFT" for x in orders),"ready_orders":sum(x.status=="READY_TO_ORDER" for x in orders),"ordered":sum(x.status=="ORDERED" for x in orders)}
+    quotes=list(db.scalars(select(SupplierQuote).where(SupplierQuote.project_id==project_id)));orders=list(db.scalars(select(PurchaseOrder).where(PurchaseOrder.project_id==project_id)));deliveries=list(db.scalars(select(PurchaseDelivery).where(PurchaseDelivery.project_id==project_id)));delivery_ids=[x.id for x in deliveries];issues=list(db.scalars(select(DeliveryIssue).where(DeliveryIssue.delivery_id.in_(delivery_ids),DeliveryIssue.status=="OPEN"))) if delivery_ids else [];returns=list(db.scalars(select(MaterialReturn).where(MaterialReturn.project_id==project_id)))
+    return {"active_quotes":sum(x.status in {"ACTIVE","SELECTED"} and validity(x.valid_until)!="EXPIRED" for x in quotes),"expiring_quotes":sum(validity(x.valid_until)=="EXPIRING_SOON" for x in quotes),"draft_orders":sum(x.status=="DRAFT" for x in orders),"ready_orders":sum(x.status=="READY_TO_ORDER" for x in orders),"ordered":sum(x.status=="ORDERED" for x in orders),"expected_deliveries":sum(x.status=="EXPECTED" for x in deliveries),"partial_deliveries":sum(x.status=="PARTIALLY_RECEIVED" for x in deliveries)+sum(x.status=="PARTIALLY_DELIVERED" for x in orders),"open_delivery_issues":len(issues),"open_returns":sum(x.status not in {"CLOSED","REJECTED"} for x in returns)}

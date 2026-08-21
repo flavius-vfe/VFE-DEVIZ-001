@@ -185,4 +185,25 @@ curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie "$cookie_jar" --request PUT --header 'Content-Type: application/json' --data '{"notes":"interzis"}' "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id")" = "409"
 for route in "projects/$project_id/quotes" "projects/$project_id/orders"; do curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null; done
 
+# Flux logistic v0.2.1: două livrări parțiale, problemă, retur, reconciliere, export și persistență.
+commercial_order_item_id=$(printf '%s' "$commercial_order" | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["id"])')
+delivery_one=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"delivery_note_number\":\"AV-001\",\"transport_cost_actual\":\"60\",\"items\":[{\"purchase_order_item_id\":$commercial_order_item_id,\"quantity_expected\":\"1000\",\"quantity_received\":\"600\"}]}" "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/deliveries")
+delivery_one_id=$(printf '%s' "$delivery_one" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+delivery_one_item_id=$(printf '%s' "$delivery_one" | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["id"])')
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:8030/api/projects/$project_id/deliveries/$delivery_one_id/close" >/dev/null
+delivery_two=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"delivery_note_number\":\"AV-002\",\"transport_cost_actual\":\"70\",\"items\":[{\"purchase_order_item_id\":$commercial_order_item_id,\"quantity_expected\":\"400\",\"quantity_received\":\"380\",\"quantity_damaged\":\"3\"}]}" "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/deliveries")
+delivery_two_id=$(printf '%s' "$delivery_two" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+issue_id=$(printf '%s' "$delivery_two" | python3 -c 'import json,sys; print(next(x["id"] for x in json.load(sys.stdin)["issues"] if x["issue_type"]=="DAMAGED"))')
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"status":"RESOLVED","resolution_notes":"Acceptat în smoke"}' "http://127.0.0.1:8030/api/projects/$project_id/delivery-issues/$issue_id/status" >/dev/null
+material_return=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"supplier_id\":$local_supplier_id,\"delivery_id\":$delivery_one_id,\"purchase_order_id\":$commercial_order_id,\"return_number\":\"RET-SMOKE-1\",\"reason\":\"DAMAGED\",\"items\":[{\"delivery_item_id\":$delivery_one_item_id,\"quantity\":\"2\",\"expected_refund_gross\":\"10.16\"}]}" "http://127.0.0.1:8030/api/projects/$project_id/returns")
+material_return_id=$(printf '%s' "$material_return" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+for status in REQUESTED ACCEPTED; do curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"status\":\"$status\"}" "http://127.0.0.1:8030/api/projects/$project_id/returns/$material_return_id/status" >/dev/null; done
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/reconciliation" | python3 -c 'import json,sys,decimal; x=json.load(sys.stdin)["items"][0]; assert decimal.Decimal(x["received_total"])==980; assert decimal.Decimal(x["remaining_to_receive"])==20; assert decimal.Decimal(x["returned_total"])==2'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/deliveries/$delivery_two_id/logistics-export.pdf" | grep --binary-files=text --quiet 'PROCES VERBAL DE RECEPTIE'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/deliveries/$delivery_two_id/logistics-export.xlsx" >/dev/null
+docker compose restart backend >/dev/null
+for attempt in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8030/ready >/dev/null 2>&1 && break; sleep 1; done
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/returns" | grep --quiet 'RET-SMOKE-1'
+for route in "projects/$project_id/deliveries" "projects/$project_id/returns"; do curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null; done
+
 echo 'Smoke test instalare Unraid: OK'

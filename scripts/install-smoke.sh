@@ -160,4 +160,29 @@ curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/
 curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/procurement/plans/$mixed_plan_id/export.xlsx" >/dev/null
 for route in "projects/$project_id/procurement" "projects/$project_id/shopping-list" "projects/$project_id/settings"; do curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null; done
 
+# Flux comercial v0.2.0: furnizor local -> ofertă/discount -> comandă -> export -> restart/imutabilitate.
+local_supplier=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"name":"Materiale Locale Neamț","code":"LOCAL_NEAMT","type":"LOCAL_MATERIAL_SUPPLIER","phone":"0700000000","locality":"Piatra-Neamț","county":"Neamț"}' http://127.0.0.1:8030/api/suppliers/local)
+local_supplier_id=$(printf '%s' "$local_supplier" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+commercial_quote=$(curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"supplier_id\":$local_supplier_id,\"quote_number\":\"SMOKE-OF-1\",\"quote_date\":\"2026-08-21T00:00:00Z\",\"valid_until\":\"2099-01-01T00:00:00Z\",\"transport_net\":\"50\"}" "http://127.0.0.1:8030/api/projects/$project_id/quotes")
+commercial_quote_id=$(printf '%s' "$commercial_quote" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+quote_attachment=$(mktemp --suffix=.pdf)
+printf '%%PDF-1.4\n%% smoke attachment\n' > "$quote_attachment"
+curl --fail --silent --cookie "$cookie_jar" --request POST --form "file=@$quote_attachment;type=application/pdf" --form 'description=Ofertă originală smoke' "http://127.0.0.1:8030/api/projects/$project_id/quotes/$commercial_quote_id/attachments" >/dev/null
+rm -f "$quote_attachment"
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data "{\"material_id\":$material_id,\"description\":\"Oțel beton B500C Ø12\",\"unit\":\"kg\",\"quantity\":\"1000\",\"unit_price_net\":\"4.20\",\"vat_rate\":\"21\",\"attributes\":{\"diameter_mm\":\"12\",\"bar_length_m\":\"12\",\"steel_grade\":\"B500C\"}}" "http://127.0.0.1:8030/api/projects/$project_id/quotes/$commercial_quote_id/items" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"discount_type":"PERCENT","value":"5","description":"Discount smoke"}' "http://127.0.0.1:8030/api/projects/$project_id/quotes/$commercial_quote_id/discounts" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"status":"ACTIVE"}' "http://127.0.0.1:8030/api/projects/$project_id/quotes/$commercial_quote_id/status" >/dev/null
+commercial_order=$(curl --fail --silent --cookie "$cookie_jar" --request POST "http://127.0.0.1:8030/api/projects/$project_id/quotes/$commercial_quote_id/purchase-order")
+commercial_order_id=$(printf '%s' "$commercial_order" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+commercial_total=$(printf '%s' "$commercial_order" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total_gross"])')
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"status":"READY_TO_ORDER"}' "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/status" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" --request POST --header 'Content-Type: application/json' --data '{"status":"ORDERED"}' "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/status" >/dev/null
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/export.pdf" | grep --binary-files=text --quiet 'COMANDA MATERIALE'
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id/export.xlsx" >/dev/null
+docker compose restart backend >/dev/null
+for attempt in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8030/ready >/dev/null 2>&1 && break; sleep 1; done
+curl --fail --silent --cookie "$cookie_jar" "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id" | python3 -c "import json,sys; x=json.load(sys.stdin); assert x['status']=='ORDERED'; assert x['total_gross']=='$commercial_total'"
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie "$cookie_jar" --request PUT --header 'Content-Type: application/json' --data '{"notes":"interzis"}' "http://127.0.0.1:8030/api/projects/$project_id/orders/$commercial_order_id")" = "409"
+for route in "projects/$project_id/quotes" "projects/$project_id/orders"; do curl --fail --silent "http://127.0.0.1:3080/$route" >/dev/null; done
+
 echo 'Smoke test instalare Unraid: OK'

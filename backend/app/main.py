@@ -41,8 +41,9 @@ from .suppliers import adapter_for, import_product, match_score, package_purchas
 from .suppliers.seed import seed_suppliers
 from .suppliers.security import validate_supplier_url
 from .procurement_api import router as procurement_router
+from .commercial_api import router as commercial_router
 
-app = FastAPI(title="VFE Deviz API", version="0.1.9")
+app = FastAPI(title="VFE Deviz API", version="0.2.0")
 
 private_origin_regex = (
     rf"^http://(?:{settings.server_ip.replace('.', r'\.')}"
@@ -60,10 +61,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(procurement_router)
+app.include_router(commercial_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.1.9"}
+    return {"status": "ok", "service": "vfe-deviz-backend", "version": "0.2.0"}
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)):
@@ -192,7 +194,7 @@ def supplier_dict(db: Session, supplier: Supplier):
     if supplier.successes: status="DEGRADED" if supplier.last_error else "HEALTHY"
     elif supplier.failures or supplier.parse_failures: status="FAILED"
     else: status="UNKNOWN"
-    return {"id":supplier.id,"code":supplier.code,"name":supplier.name,"website":supplier.website,"active":supplier.active,
+    return {"id":supplier.id,"code":supplier.code,"name":supplier.name,"type":supplier.type,"website":supplier.website,"phone":supplier.phone,"email":supplier.email,"address":supplier.address,"locality":supplier.locality,"county":supplier.county,"notes":supplier.notes,"active":supplier.active,
       "status":status,"requests":supplier.requests,"successes":supplier.successes,
       "failures":supplier.failures,"parse_failures":supplier.parse_failures,"last_success":supplier.last_success,"last_error":supplier.last_error,
       "products_tracked":products_tracked,"price_observations":price_observations,"manual_imports":supplier.manual_imports,

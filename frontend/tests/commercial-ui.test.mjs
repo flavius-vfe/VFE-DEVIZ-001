@@ -1,0 +1,6 @@
+import test from"node:test";import assert from"node:assert/strict";import fs from"node:fs";const read=p=>fs.readFileSync(new URL(p,import.meta.url),"utf8"),quotes=read("../app/projects/[id]/quotes/page.tsx"),orders=read("../app/projects/[id]/orders/page.tsx"),project=read("../app/projects/[id]/page.tsx"),suppliers=read("../app/suppliers/supplier-client.tsx");
+test("navigare comercială românească",()=>{for(const x of ["Deviz","Geometrie","Aprovizionare","Oferte","Comenzi","Setări"])assert.match(project,new RegExp(x))});
+test("editor ofertă și acțiuni",()=>{for(const x of ["Adaugă ofertă","Duplică","Marchează selectată","Respinge","Arhivează","Selectează pentru achiziție"])assert.match(quotes,new RegExp(x))});
+test("poziții și discounturi ofertă",()=>{for(const x of ["Preț fără TVA","Preț cu TVA","Discount","TOTAL CU TVA","PAYMENT_CONDITION","VOLUME_DISCOUNT"])assert.match(quotes,new RegExp(x))});
+test("flux comenzi până la ORDERED",()=>{for(const x of ["Comenzi materiale","Marchează gata de comandă","Marchează comandată","Anulează","Creează revizie"])assert.match(orders,new RegExp(x))});
+test("furnizori locali",()=>{for(const x of ["Adaugă furnizor","LOCAL_MATERIAL_SUPPLIER","READY_MIX_CONCRETE","Telefon","Județ"])assert.match(suppliers,new RegExp(x))});

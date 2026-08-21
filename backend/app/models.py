@@ -259,6 +259,11 @@ class Supplier(Base):
     name: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False, default="RETAILER")
     website: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(String(60))
+    email: Mapped[str | None] = mapped_column(String(255))
+    address: Mapped[str | None] = mapped_column(Text)
+    locality: Mapped[str | None] = mapped_column(String(160))
+    county: Mapped[str | None] = mapped_column(String(160))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
     requests_per_minute: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
@@ -408,7 +413,8 @@ class ProcurementPlanItem(Base):
     estimate_resource_id: Mapped[int] = mapped_column(ForeignKey("estimate_resource_lines.id"), nullable=False)
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), nullable=False)
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), nullable=False)
-    supplier_product_id: Mapped[int] = mapped_column(ForeignKey("supplier_products.id"), nullable=False)
+    supplier_product_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_products.id"))
+    quote_item_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_quote_items.id"))
     required_quantity: Mapped[Decimal] = mapped_column(Numeric(18,6), nullable=False)
     required_unit: Mapped[str] = mapped_column(String(20), nullable=False)
     package_quantity: Mapped[Decimal] = mapped_column(Numeric(18,6), nullable=False)
@@ -426,6 +432,7 @@ class ProcurementPlanItem(Base):
     product_name: Mapped[str] = mapped_column(String(500), nullable=False)
     product_url: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    procurement_status: Mapped[str] = mapped_column(String(30), default="NOT_ORDERED", nullable=False)
 
 class ProcurementPlanSupplierTotal(Base):
     __tablename__ = "procurement_plan_supplier_totals"
@@ -474,3 +481,65 @@ class EstimateSnapshotLine(Base):
     package_unit: Mapped[str | None] = mapped_column(String(20))
     purchase_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     packages_to_buy: Mapped[int | None] = mapped_column(Integer)
+
+class SupplierQuote(Base):
+    __tablename__="supplier_quotes"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True)
+    supplier_id:Mapped[int]=mapped_column(ForeignKey("suppliers.id"),nullable=False)
+    project_id:Mapped[int]=mapped_column(ForeignKey("projects.id",ondelete="CASCADE"),nullable=False)
+    quote_number:Mapped[str|None]=mapped_column(String(120)); quote_date:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False)
+    valid_until:Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); currency:Mapped[str]=mapped_column(String(3),default="RON",nullable=False)
+    status:Mapped[str]=mapped_column(String(30),default="DRAFT",nullable=False)
+    subtotal_net:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    discount_total_net:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    transport_net:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    pump_fixed_cost:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    pump_hourly_cost:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    pump_hours:Mapped[Decimal]=mapped_column(Numeric(10,2),default=Decimal("0"),nullable=False)
+    waiting_cost:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    other_cost:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    vat_total:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False); total_gross:Mapped[Decimal]=mapped_column(Numeric(18,2),default=Decimal("0"),nullable=False)
+    notes:Mapped[str|None]=mapped_column(Text); conditions:Mapped[dict]=mapped_column(JSON,default=dict,nullable=False)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,nullable=False); updated_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,onupdate=utcnow,nullable=False)
+
+class SupplierQuoteItem(Base):
+    __tablename__="supplier_quote_items"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True); quote_id:Mapped[int]=mapped_column(ForeignKey("supplier_quotes.id",ondelete="CASCADE"),nullable=False)
+    material_id:Mapped[int|None]=mapped_column(ForeignKey("materials.id")); supplier_product_id:Mapped[int|None]=mapped_column(ForeignKey("supplier_products.id"))
+    description:Mapped[str]=mapped_column(String(500),nullable=False); supplier_sku:Mapped[str|None]=mapped_column(String(120)); unit:Mapped[str]=mapped_column(String(20),nullable=False)
+    quantity:Mapped[Decimal]=mapped_column(Numeric(18,6),nullable=False); unit_price_net:Mapped[Decimal]=mapped_column(Numeric(18,4),nullable=False); vat_rate:Mapped[Decimal]=mapped_column(Numeric(7,3),nullable=False)
+    unit_price_gross:Mapped[Decimal]=mapped_column(Numeric(18,4),nullable=False); line_discount_type:Mapped[str|None]=mapped_column(String(30)); line_discount_value:Mapped[Decimal|None]=mapped_column(Numeric(18,4))
+    line_total_net:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); line_vat:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); line_total_gross:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False)
+    attributes:Mapped[dict]=mapped_column(JSON,default=dict,nullable=False); notes:Mapped[str|None]=mapped_column(Text)
+
+class Discount(Base):
+    __tablename__="discounts"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True); scope_type:Mapped[str]=mapped_column(String(30),nullable=False); scope_id:Mapped[int]=mapped_column(Integer,nullable=False)
+    discount_type:Mapped[str]=mapped_column(String(40),nullable=False); value:Mapped[Decimal]=mapped_column(Numeric(18,4),nullable=False); description:Mapped[str|None]=mapped_column(Text)
+    valid_from:Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); valid_until:Mapped[datetime|None]=mapped_column(DateTime(timezone=True)); conditions:Mapped[dict|None]=mapped_column(JSON); active:Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
+
+class Attachment(Base):
+    __tablename__="attachments"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True); project_id:Mapped[int]=mapped_column(ForeignKey("projects.id",ondelete="CASCADE"),nullable=False)
+    entity_type:Mapped[str]=mapped_column(String(50),nullable=False); entity_id:Mapped[int]=mapped_column(Integer,nullable=False); original_filename:Mapped[str]=mapped_column(String(255),nullable=False); stored_filename:Mapped[str]=mapped_column(String(255),nullable=False)
+    mime_type:Mapped[str]=mapped_column(String(120),nullable=False); file_size:Mapped[int]=mapped_column(Integer,nullable=False); relative_path:Mapped[str]=mapped_column(Text,nullable=False); uploaded_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,nullable=False); description:Mapped[str|None]=mapped_column(Text)
+
+class PurchaseOrder(Base):
+    __tablename__="purchase_orders"; __table_args__=(UniqueConstraint("order_number",name="uq_purchase_order_number"),)
+    id:Mapped[int]=mapped_column(Integer,primary_key=True); project_id:Mapped[int]=mapped_column(ForeignKey("projects.id",ondelete="CASCADE"),nullable=False); supplier_id:Mapped[int]=mapped_column(ForeignKey("suppliers.id"),nullable=False)
+    supplier_quote_id:Mapped[int|None]=mapped_column(ForeignKey("supplier_quotes.id")); procurement_plan_id:Mapped[int|None]=mapped_column(ForeignKey("procurement_plans.id")); order_number:Mapped[str]=mapped_column(String(50),nullable=False)
+    status:Mapped[str]=mapped_column(String(30),default="DRAFT",nullable=False); delivery_address:Mapped[str]=mapped_column(Text,nullable=False); requested_delivery_date:Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    subtotal_net:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); discount_total:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); transport_cost:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); vat_total:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); total_gross:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False)
+    notes:Mapped[str|None]=mapped_column(Text); revision_of_id:Mapped[int|None]=mapped_column(ForeignKey("purchase_orders.id")); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,nullable=False); updated_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,onupdate=utcnow,nullable=False)
+
+class PurchaseOrderItem(Base):
+    __tablename__="purchase_order_items"
+    id:Mapped[int]=mapped_column(Integer,primary_key=True); purchase_order_id:Mapped[int]=mapped_column(ForeignKey("purchase_orders.id",ondelete="CASCADE"),nullable=False); estimate_resource_id:Mapped[int|None]=mapped_column(ForeignKey("estimate_resource_lines.id")); material_id:Mapped[int|None]=mapped_column(ForeignKey("materials.id")); supplier_product_id:Mapped[int|None]=mapped_column(ForeignKey("supplier_products.id")); quote_item_id:Mapped[int|None]=mapped_column(ForeignKey("supplier_quote_items.id"))
+    description:Mapped[str]=mapped_column(String(500),nullable=False); sku:Mapped[str|None]=mapped_column(String(120)); unit:Mapped[str]=mapped_column(String(20),nullable=False); quantity:Mapped[Decimal]=mapped_column(Numeric(18,6),nullable=False); package_quantity:Mapped[Decimal|None]=mapped_column(Numeric(18,6)); package_count:Mapped[int|None]=mapped_column(Integer)
+    unit_price_net:Mapped[Decimal]=mapped_column(Numeric(18,4),nullable=False); vat_rate:Mapped[Decimal]=mapped_column(Numeric(7,3),nullable=False); unit_price_gross:Mapped[Decimal]=mapped_column(Numeric(18,4),nullable=False); discount_net:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); line_total_net:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); line_vat:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); line_total_gross:Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False); notes:Mapped[str|None]=mapped_column(Text)
+
+class PurchaseOrderSequence(Base):
+    __tablename__="purchase_order_sequences"; year:Mapped[int]=mapped_column(Integer,primary_key=True); value:Mapped[int]=mapped_column(Integer,nullable=False,default=0)
+
+class AuditEvent(Base):
+    __tablename__="audit_events"; id:Mapped[int]=mapped_column(Integer,primary_key=True); entity_type:Mapped[str]=mapped_column(String(50),nullable=False); entity_id:Mapped[int]=mapped_column(Integer,nullable=False); action:Mapped[str]=mapped_column(String(80),nullable=False); details:Mapped[dict]=mapped_column(JSON,default=dict,nullable=False); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,nullable=False)

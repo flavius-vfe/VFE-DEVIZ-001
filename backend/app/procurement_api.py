@@ -6,10 +6,11 @@ from sqlalchemy import select,delete
 from sqlalchemy.orm import Session
 from .db import get_db
 from .deps import current_user
-from .models import User,Project,Building,Level,EstimateSection,EstimateItem,EstimateResourceLine,Material,Supplier,SupplierLocation,SupplierProduct,ProductMatch,PriceObservation,DeliveryQuote,SupplierDeliveryRule,ProcurementPlan,ProcurementPlanItem,ProcurementPlanSupplierTotal
+from .models import User,Project,Building,Level,EstimateSection,EstimateItem,EstimateResourceLine,Material,Supplier,SupplierLocation,SupplierProduct,ProductMatch,PriceObservation,DeliveryQuote,SupplierDeliveryRule,ProcurementPlan,ProcurementPlanItem,ProcurementPlanSupplierTotal,SupplierQuote,SupplierQuoteItem
 from .procurement import Candidate,Delivery,choose_delivery,estimated_delivery,optimize,freshness
 from .procurement_exports import shopping_pdf,shopping_xlsx
 from .config import settings
+from .commercial import validity
 router=APIRouter(prefix="/api")
 
 def need(db,model,id,msg):
@@ -65,6 +66,27 @@ def current_inputs(db,project_id,include_unknown):
             supplier=db.get(Supplier,product.supplier_id)
             candidates.append(Candidate(material_id,supplier.id,supplier.code,product.id,product.supplier_sku,product.name,product.product_url,required["quantity"],required["unit"],product.package_quantity,product.package_unit or required["unit"],price.price_gross,price.checked_at,price.stock_status,product.minimum_order_quantity,product.minimum_package_count,product.whole_pallet_only))
     project=need(db,Project,project_id,"Proiectul nu există.");all_quotes=[{c.name:getattr(x,c.name) for c in x.__table__.columns} for x in db.scalars(select(DeliveryQuote).where(DeliveryQuote.project_id==project_id,DeliveryQuote.active.is_(True)))]
+    # Ofertele negociate valide intră în aceeași listă de candidați, fără prioritate aritmetică.
+    manual_quotes=list(db.scalars(select(SupplierQuote).where(SupplierQuote.project_id==project_id,SupplierQuote.status.in_(["ACTIVE","SELECTED"]))))
+    for quote in manual_quotes:
+        if validity(quote.valid_until)=="EXPIRED":continue
+        quote_items=list(db.scalars(select(SupplierQuoteItem).where(SupplierQuoteItem.quote_id==quote.id)))
+        line_discount=sum((item.quantity*item.unit_price_net-item.line_total_net for item in quote_items),Decimal("0"))
+        after_line=quote.subtotal_net-line_discount
+        quote_discount=max(quote.discount_total_net-line_discount,Decimal("0"))
+        ratio=(after_line-quote_discount)/after_line if after_line else Decimal("1")
+        for item in (row for row in quote_items if row.material_id is not None):
+            required=aggregated.get(item.material_id)
+            if not required:continue
+            factor=Decimal("1000") if item.unit=="tona" and required["unit"]=="kg" else Decimal("1")
+            if item.unit!=required["unit"] and factor==1:continue
+            available=item.quantity*factor
+            if available<required["quantity"]:continue
+            price_net=(item.line_total_net/item.quantity)/factor*ratio;price_gross=price_net*(Decimal("1")+item.vat_rate/Decimal("100"));supplier=db.get(Supplier,quote.supplier_id)
+            candidates.append(Candidate(item.material_id,supplier.id,supplier.code,-item.id,item.supplier_sku or f"OFERTA-{quote.id}",item.description,f"/projects/{project_id}/quotes/{quote.id}",required["quantity"],required["unit"],Decimal("1"),required["unit"],price_gross,quote.updated_at,"IN_STOCK"))
+        extra_net=quote.transport_net+quote.pump_fixed_cost+quote.pump_hourly_cost*quote.pump_hours+quote.waiting_cost+quote.other_cost
+        transport_gross=extra_net*Decimal("1.21")
+        all_quotes.append({"supplier_id":quote.supplier_id,"source":"MANUAL","delivery_cost_gross":transport_gross,"checked_at":quote.updated_at,"active":True,"valid_from":quote.quote_date,"valid_until":quote.valid_until})
     deliveries={}
     for supplier in db.scalars(select(Supplier).where(Supplier.active.is_(True))):
         rule=db.scalar(select(SupplierDeliveryRule).where(SupplierDeliveryRule.supplier_id==supplier.id,SupplierDeliveryRule.active.is_(True)));estimated=None
@@ -75,7 +97,7 @@ def current_inputs(db,project_id,include_unknown):
 @router.post("/projects/{project_id}/procurement/compare")
 def compare(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
     include=bool(payload.get("include_unknown_delivery",False));candidates,deliveries,_=current_inputs(db,project_id,include);results=[]
-    suppliers=list(db.scalars(select(Supplier).where(Supplier.code.in_(["DEDEMAN","MATHAUS"]))))
+    suppliers=list(db.scalars(select(Supplier).where(Supplier.active.is_(True))))
     for supplier in sorted(suppliers,key=lambda x:x.code):
         try:r=optimize(candidates,deliveries,"PREFERRED_SUPPLIER",supplier.id,include);results.append({"label":supplier.code,"strategy":"PREFERRED_SUPPLIER","landed_total_gross":r["landed_total_gross"],"supplier_totals":r["supplier_totals"]})
         except ValueError as exc:results.append({"label":supplier.code,"strategy":"PREFERRED_SUPPLIER","error":str(exc)})
@@ -89,12 +111,14 @@ def compare(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depend
 @router.post("/projects/{project_id}/procurement/calculate",status_code=201)
 def calculate(project_id:int,payload:dict,db:Session=Depends(get_db),_:User=Depends(current_user)):
     strategy=payload.get("strategy","CHEAPEST_MIXED_SUPPLIERS");include=bool(payload.get("include_unknown_delivery",False));candidates,deliveries,aggregated=current_inputs(db,project_id,include)
-    try:result=optimize(candidates,deliveries,strategy,payload.get("preferred_supplier_id"),include,{int(k):int(v) for k,v in payload.get("product_overrides",{}).items()},{int(k):int(v) for k,v in payload.get("package_overrides",{}).items()},{int(k):int(v) for k,v in payload.get("supplier_overrides",{}).items()})
+    try:result=optimize(candidates,deliveries,strategy,payload.get("preferred_supplier_id"),include,{int(k):int(v) for k,v in payload.get("product_overrides",{}).items()},{int(k):int(v) for k,v in payload.get("package_overrides",{}).items()},{int(k):int(v) for k,v in payload.get("supplier_overrides",{}).items()},bool(payload.get("prefer_negotiated",False)))
     except ValueError as exc:raise HTTPException(422,str(exc)) from exc
     plan=ProcurementPlan(project_id=project_id,strategy=strategy,preferred_supplier_id=payload.get("preferred_supplier_id"),status="CALCULATED",include_unknown_delivery=include);db.add(plan);db.flush()
     suppliers={x.id:x for x in db.scalars(select(Supplier))}
     for x in result["items"]:
-        data={k:v for k,v in x.items() if k not in {"supplier_code"}};data["estimate_resource_id"]=aggregated[x["material_id"]]["estimate_resource_id"];data["procurement_plan_id"]=plan.id;data["supplier_name"]=suppliers[x["supplier_id"]].name;db.add(ProcurementPlanItem(**data))
+        data={k:v for k,v in x.items() if k not in {"supplier_code"}};data["estimate_resource_id"]=aggregated[x["material_id"]]["estimate_resource_id"];data["procurement_plan_id"]=plan.id;data["supplier_name"]=suppliers[x["supplier_id"]].name
+        if data["supplier_product_id"]<0:data["quote_item_id"]=-data["supplier_product_id"];data["supplier_product_id"]=None
+        db.add(ProcurementPlanItem(**data))
     for x in result["supplier_totals"]:db.add(ProcurementPlanSupplierTotal(procurement_plan_id=plan.id,**{k:v for k,v in x.items() if k!="supplier_code"}))
     db.commit();return get_plan(project_id,plan.id,db,_)
 
@@ -108,7 +132,7 @@ def get_plan(project_id:int,plan_id:int,db:Session=Depends(get_db),_:User=Depend
     if plan.project_id!=project_id:raise HTTPException(404,"Planul nu există.")
     items=list(db.scalars(select(ProcurementPlanItem).where(ProcurementPlanItem.procurement_plan_id==plan.id)));totals=list(db.scalars(select(ProcurementPlanSupplierTotal).where(ProcurementPlanSupplierTotal.procurement_plan_id==plan.id)));result=result_dict(plan,items,totals)
     for t in result["supplier_totals"]:t["supplier_code"]=db.get(Supplier,t["supplier_id"]).code
-    result["newer_prices_available"]=any((db.scalar(select(PriceObservation.checked_at).where(PriceObservation.supplier_product_id==item.supplier_product_id,PriceObservation.success.is_(True)).order_by(PriceObservation.checked_at.desc(),PriceObservation.id.desc()).limit(1)) or item.price_checked_at)>item.price_checked_at for item in items)
+    result["newer_prices_available"]=any(item.supplier_product_id and (db.scalar(select(PriceObservation.checked_at).where(PriceObservation.supplier_product_id==item.supplier_product_id,PriceObservation.success.is_(True)).order_by(PriceObservation.checked_at.desc(),PriceObservation.id.desc()).limit(1)) or item.price_checked_at)>item.price_checked_at for item in items)
     return result
 
 @router.post("/projects/{project_id}/procurement/plans/{plan_id}/lock")
